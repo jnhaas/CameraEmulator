@@ -45,6 +45,7 @@ namespace CameraEmulator
     constexpr wchar_t kScreenSection[] = L"screen";
     constexpr wchar_t kLastRegionKey[] = L"lastRegion"; // x,y,w,h of the last broadcast zone
     constexpr wchar_t kStopKeyKey[] = L"stopKey";       // e.g. ctrl+alt+x
+    constexpr wchar_t kStartKeyKey[] = L"startKey";     // tray app only, e.g. ctrl+alt+c
 
     // How the image is placed in the frame.
     //   android: fit into the region the Android emulator keeps when it rotates webcam frames

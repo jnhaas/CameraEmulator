@@ -29,6 +29,9 @@ namespace
     constexpr UINT kTrayMessage = WM_APP + 1;
     constexpr UINT kTrayIconId = 1;
     constexpr int kStopHotkeyId = 1;
+    constexpr int kStartHotkeyId = 2;
+    constexpr wchar_t kDefaultStopKey[] = L"ctrl+alt+x";
+    constexpr wchar_t kDefaultStartKey[] = L"ctrl+alt+c"; // "capture"
     constexpr wchar_t kWindowClass[] = L"CameraEmulatorTray";
     constexpr wchar_t kRunKey[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
     constexpr wchar_t kRunValue[] = L"CameraEmulator";
@@ -48,7 +51,72 @@ namespace
         CmdStartWithWindows,
         CmdOpenFolder,
         CmdExit,
+        // Added later; appended to keep the IDs above stable for scripts.
+        CmdZone300x300,
+        CmdStartBroadcast,
     };
+
+    // Zone used by "Start broadcast": a centered size ("300x300") or the exact last zone ("last").
+    constexpr wchar_t kZoneChoiceKey[] = L"zoneChoice";
+    constexpr wchar_t kLastZoneChoice[] = L"last";
+    constexpr wchar_t kDefaultZoneChoice[] = L"300x300"; // suits QR codes
+
+    struct ZonePreset
+    {
+        UINT command;
+        LONG width;
+        LONG height;
+    };
+    constexpr ZonePreset kZonePresets[] = {
+        {CmdZone300x300, 300, 300},
+        {CmdZone640x480, 640, 480},
+        {CmdZone800x600, 800, 600},
+        {CmdZone1280x720, 1280, 720},
+    };
+
+    std::wstring PresetChoice(const ZonePreset& preset)
+    {
+        return std::to_wstring(preset.width) + L"x" + std::to_wstring(preset.height);
+    }
+
+    std::wstring ZoneChoice()
+    {
+        return ReadSetting(CameraEmulator::kScreenSection, kZoneChoiceKey, kDefaultZoneChoice);
+    }
+
+    void SetZoneChoice(const wchar_t* choice)
+    {
+        WriteSetting(CameraEmulator::kScreenSection, kZoneChoiceKey, choice);
+    }
+
+    // "last" -> the saved last zone; "WxH" -> centered on the monitor under the mouse. Falls back
+    // to the default size if the choice can't be resolved (e.g. no last zone yet).
+    bool ResolveZoneChoice(const std::wstring& choice, RECT& region)
+    {
+        if (choice == kLastZoneChoice)
+        {
+            const std::wstring last = ReadSetting(CameraEmulator::kScreenSection, CameraEmulator::kLastRegionKey);
+            if (!last.empty() && ParseRegion(last.c_str(), region)) return true;
+        }
+        else if (choice.find(L'x') != std::wstring::npos && ParseRegion(choice.c_str(), region))
+        {
+            return true;
+        }
+        return ParseRegion(kDefaultZoneChoice, region);
+    }
+
+    std::wstring ZoneChoiceLabel(const std::wstring& choice)
+    {
+        if (choice == kLastZoneChoice)
+        {
+            const std::wstring last = ReadSetting(CameraEmulator::kScreenSection, CameraEmulator::kLastRegionKey);
+            if (!last.empty()) return L"last zone " + last;
+            return ZoneChoiceLabel(kDefaultZoneChoice);
+        }
+        int width = 0, height = 0;
+        if (swscanf_s(choice.c_str(), L"%dx%d", &width, &height) != 2) return ZoneChoiceLabel(kDefaultZoneChoice);
+        return std::to_wstring(width) + L" x " + std::to_wstring(height) + L", centered";
+    }
 
     // Tray icon: a camera, with a red "on air" dot while a zone is broadcast. Drawn at runtime so
     // it is sharp at any DPI.
@@ -232,12 +300,28 @@ namespace
         std::unique_ptr<RegionBorder> m_border;
         RECT m_region{};
         Hotkey m_stopKey;
-        bool m_hotkeyRegistered = false;
+        bool m_hotkeyRegistered = false; // stop shortcut, only while broadcasting
+        Hotkey m_startKey;
+        bool m_startKeyRegistered = false; // start shortcut, while the app runs
+
+        // Same keys for start and stop: the start shortcut toggles the broadcast.
+        bool StartKeyToggles() const
+        {
+            return m_startKey.modifiers == m_stopKey.modifiers && m_startKey.key == m_stopKey.key;
+        }
     };
 
     int TrayApp::Run(HINSTANCE instance)
     {
-        ParseHotkey(ReadSetting(CameraEmulator::kScreenSection, CameraEmulator::kStopKeyKey, L"ctrl+alt+x").c_str(), m_stopKey);
+        // Invalid settings fall back to the defaults.
+        if (!ParseHotkey(ReadSetting(CameraEmulator::kScreenSection, CameraEmulator::kStopKeyKey, kDefaultStopKey).c_str(), m_stopKey))
+        {
+            ParseHotkey(kDefaultStopKey, m_stopKey);
+        }
+        if (!ParseHotkey(ReadSetting(CameraEmulator::kScreenSection, CameraEmulator::kStartKeyKey, kDefaultStartKey).c_str(), m_startKey))
+        {
+            ParseHotkey(kDefaultStartKey, m_startKey);
+        }
 
         WNDCLASSEXW windowClass{sizeof(windowClass)};
         windowClass.lpfnWndProc = WindowProc;
@@ -254,6 +338,14 @@ namespace
 
         AddTrayIcon();
         StartCamera();
+
+        // Start shortcut: available for as long as the tray app runs.
+        m_startKeyRegistered = RegisterHotKey(m_window, kStartHotkeyId, m_startKey.modifiers | MOD_NOREPEAT, m_startKey.key) != FALSE;
+        Log(L"Start shortcut %s %s", m_startKey.text.c_str(), m_startKeyRegistered ? L"registered" : L"NOT registered");
+        if (!m_startKeyRegistered)
+        {
+            Notify(m_startKey.text + L" is used by another application: start the broadcast from this menu, or set startKey in settings.ini.", false);
+        }
 
         MSG message;
         while (GetMessageW(&message, nullptr, 0, 0) > 0)
@@ -384,7 +476,21 @@ namespace
         HMENU menu = CreatePopupMenu();
         AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, StatusText().c_str());
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(menu, MF_STRING, CmdChooseImage, L"Choose image...");
+
+        // One click starts the broadcast with the remembered zone choice (bold default item).
+        const std::wstring choice = ZoneChoice();
+        if (m_broadcaster)
+        {
+            AppendMenuW(menu, MF_STRING, CmdStopBroadcast, (L"Stop broadcast\t" + m_stopKey.text).c_str());
+            SetMenuDefaultItem(menu, CmdStopBroadcast, FALSE);
+        }
+        else
+        {
+            std::wstring label = L"Start broadcast (" + ZoneChoiceLabel(choice) + L")";
+            if (m_startKeyRegistered) label += L"\t" + m_startKey.text;
+            AppendMenuW(menu, MF_STRING, CmdStartBroadcast, label.c_str());
+            SetMenuDefaultItem(menu, CmdStartBroadcast, FALSE);
+        }
 
         HMENU zones = CreatePopupMenu();
         AppendMenuW(zones, MF_STRING, CmdSelectZone, L"Select zone...");
@@ -392,15 +498,18 @@ namespace
         const std::wstring last = ReadSetting(CameraEmulator::kScreenSection, CameraEmulator::kLastRegionKey);
         if (!last.empty() && ParseRegion(last.c_str(), lastRegion))
         {
-            AppendMenuW(zones, MF_STRING, CmdLastZone, (L"Last zone (" + last + L")").c_str());
+            AppendMenuW(zones, MF_STRING | (choice == kLastZoneChoice ? MF_CHECKED : 0), CmdLastZone,
+                (L"Last zone (" + last + L")").c_str());
         }
         AppendMenuW(zones, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(zones, MF_STRING, CmdZone640x480, L"640 x 480, centered");
-        AppendMenuW(zones, MF_STRING, CmdZone800x600, L"800 x 600, centered");
-        AppendMenuW(zones, MF_STRING, CmdZone1280x720, L"1280 x 720, centered");
-        AppendMenuW(menu, MF_POPUP | (m_broadcaster ? MF_GRAYED : 0), reinterpret_cast<UINT_PTR>(zones), L"Broadcast screen zone");
-        AppendMenuW(menu, MF_STRING | (m_broadcaster ? 0 : MF_GRAYED), CmdStopBroadcast,
-            (L"Stop broadcast\t" + m_stopKey.text).c_str());
+        for (const ZonePreset& preset : kZonePresets)
+        {
+            const std::wstring presetChoice = PresetChoice(preset);
+            AppendMenuW(zones, MF_STRING | (choice == presetChoice ? MF_CHECKED : 0), preset.command, ZoneChoiceLabel(presetChoice).c_str());
+        }
+        AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(zones), L"Choose zone and start");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, CmdChooseImage, L"Choose image...");
 
         const bool android = AndroidLayout();
         HMENU layouts = CreatePopupMenu();
@@ -432,20 +541,31 @@ namespace
         case CmdChooseImage:
             ChooseImage();
             break;
+        case CmdStartBroadcast:
+            if (ResolveZoneChoice(ZoneChoice(), region)) StartBroadcast(region);
+            break;
         case CmdSelectZone:
-            if (SelectScreenRegion(region)) StartBroadcast(region);
+            // A drawn zone is remembered as the "last zone" (saved by StartBroadcast).
+            if (SelectScreenRegion(region))
+            {
+                SetZoneChoice(kLastZoneChoice);
+                StartBroadcast(region);
+            }
             break;
         case CmdLastZone:
-            if (ParseRegion(ReadSetting(CameraEmulator::kScreenSection, CameraEmulator::kLastRegionKey).c_str(), region)) StartBroadcast(region);
+            SetZoneChoice(kLastZoneChoice);
+            if (ResolveZoneChoice(kLastZoneChoice, region)) StartBroadcast(region);
             break;
+        case CmdZone300x300:
         case CmdZone640x480:
-            StartBroadcast(CenteredRegion(640, 480));
-            break;
         case CmdZone800x600:
-            StartBroadcast(CenteredRegion(800, 600));
-            break;
         case CmdZone1280x720:
-            StartBroadcast(CenteredRegion(1280, 720));
+            for (const ZonePreset& preset : kZonePresets)
+            {
+                if (preset.command != command) continue;
+                SetZoneChoice(PresetChoice(preset).c_str());
+                StartBroadcast(CenteredRegion(preset.width, preset.height));
+            }
             break;
         case CmdStopBroadcast:
             StopBroadcast();
@@ -507,17 +627,26 @@ namespace
         }
         m_broadcaster = std::move(broadcaster);
         m_region = region;
+        WriteSetting(CameraEmulator::kScreenSection, CameraEmulator::kLastRegionKey, FormatRegion(region).c_str());
         m_border = std::make_unique<RegionBorder>();
         m_border->Show(region, [this](const RECT& moved) {
             m_region = moved;
             if (m_broadcaster) m_broadcaster->MoveTo(POINT{moved.left, moved.top});
         });
 
-        m_hotkeyRegistered = RegisterHotKey(m_window, kStopHotkeyId, m_stopKey.modifiers | MOD_NOREPEAT, m_stopKey.key) != FALSE;
-        Log(L"Broadcasting %s, stop shortcut %s %s", FormatRegion(region).c_str(), m_stopKey.text.c_str(), m_hotkeyRegistered ? L"registered" : L"NOT registered");
-        if (!m_hotkeyRegistered)
+        if (StartKeyToggles())
         {
-            Notify(m_stopKey.text + L" is used by another application: stop the broadcast from this menu.", false);
+            // The start shortcut (already registered) also stops the broadcast.
+            Log(L"Broadcasting %s, %s toggles the broadcast", FormatRegion(region).c_str(), m_startKey.text.c_str());
+        }
+        else
+        {
+            m_hotkeyRegistered = RegisterHotKey(m_window, kStopHotkeyId, m_stopKey.modifiers | MOD_NOREPEAT, m_stopKey.key) != FALSE;
+            Log(L"Broadcasting %s, stop shortcut %s %s", FormatRegion(region).c_str(), m_stopKey.text.c_str(), m_hotkeyRegistered ? L"registered" : L"NOT registered");
+            if (!m_hotkeyRegistered)
+            {
+                Notify(m_stopKey.text + L" is used by another application: stop the broadcast from this menu.", false);
+            }
         }
         UpdateTrayIcon();
     }
@@ -537,6 +666,8 @@ namespace
     void TrayApp::Exit()
     {
         StopBroadcast();
+        if (m_startKeyRegistered) UnregisterHotKey(m_window, kStartHotkeyId);
+        m_startKeyRegistered = false;
         StopSessionCamera();
         NOTIFYICONDATAW data{sizeof(data)};
         data.hWnd = m_window;
@@ -581,6 +712,12 @@ namespace
             {
                 Log(L"Stop shortcut pressed");
                 StopBroadcast();
+            }
+            else if (wParam == kStartHotkeyId)
+            {
+                Log(L"Start shortcut pressed");
+                if (!m_broadcaster) OnCommand(CmdStartBroadcast);
+                else if (StartKeyToggles()) StopBroadcast();
             }
             return 0;
         case WM_COMMAND:

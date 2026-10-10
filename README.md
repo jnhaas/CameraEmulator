@@ -66,11 +66,24 @@ broadcast. Windows 11 puts new icons in the overflow area (the **^** arrow); to 
 drag it onto the taskbar, or enable it in Settings → Personalization → Taskbar → Other system
 tray icons. Left- or right-click the icon for the menu:
 
+- **Start broadcast (300 x 300, centered)**: the bold first item. It starts capturing the
+  remembered zone in one click, and becomes **Stop broadcast** while capturing.
+
+  Two global shortcuts work from anywhere:
+
+  | Shortcut | Default | `settings.ini`, `[screen]` section |
+  |---|---|---|
+  | Start the broadcast with the remembered zone | **Ctrl+Alt+C** | `startKey=` |
+  | Stop the broadcast | **Ctrl+Alt+X** | `stopKey=` |
+
+  Setting both to the same keys turns that shortcut into an on/off toggle. Changes take effect
+  the next time the tray app starts. If a shortcut is already used by another application, the
+  tray app shows a notification and the menu still works.
+- **Choose zone and start**: drag a rectangle (*Select zone…*), reuse the exact *Last zone*, or
+  pick a centered size: 300 × 300 (the default, suited to QR codes), 640 × 480, 800 × 600 or
+  1280 × 720. The choice is remembered (check mark), so next time *Start broadcast* is enough. A
+  drawn zone is remembered as the last zone. Drag the red frame to move the zone.
 - **Choose image…**: the picture shown by the camera.
-- **Broadcast screen zone**: drag a rectangle (*Select zone…*), reuse the *Last zone*, or pick a
-  centered size. Drag the red frame to move the zone.
-- **Stop broadcast**: also available from anywhere with the stop shortcut (Ctrl+Alt+X by
-  default; set `stopKey=` in the `[screen]` section of `settings.ini` to change it).
 - **Layout**: *Android emulator (portrait)* or *Fit (desktop apps)*.
 - **Keep the camera when this app is closed**: installs the camera permanently, the same as
   `--install`. When unchecked, the camera exists only while the tray app runs.
