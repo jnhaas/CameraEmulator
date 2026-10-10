@@ -43,6 +43,39 @@ cmake -S . -B build
 cmake --build build --config Release
 ```
 
+## Packaging
+
+```bat
+tools\package.bat
+```
+
+This builds Release in a separate `build-package` folder, so running binaries never block it,
+signs the binaries, and creates `dist\CameraEmulator-<date>-<commit>.zip`.
+
+**Signing.** `CameraEmulatorTray.exe`, `CameraEmulator.exe` and `CameraEmulatorSource.dll` are
+signed with `signtool.exe` from the Windows SDK (found automatically), using SHA-256 and an
+RFC 3161 timestamp, then verified. Settings come from the environment or from
+`tools\sign-config.bat`, which is ignored by git; copy `tools\sign-config.example.bat` to create it:
+
+| Variable | Default |
+|---|---|
+| `SIGN_CERT_SHA1` | thumbprint of the certificate in the certificate store; unset = `signtool /a` picks the best code signing certificate |
+| `SIGN_TIMESTAMP_URL` | `http://time.certum.pl` |
+
+If signing fails, no package is created. For a cloud or hardware certificate (such as Certum
+SimplySign), its software must be running and signed in. `tools\package.bat --no-sign` creates an
+unsigned package named `…-unsigned.zip`. The name ends with `-modified` if the working
+tree has uncommitted changes. The zip contains the two apps, the source DLL, the user guide,
+`ReadMe.txt`, and the scripts from `packaging\`:
+
+- **`Install.bat`** asks for administrator rights once to copy the files to
+  `%ProgramFiles%\CameraEmulator` and register the DLL there. A folder inside the user profile,
+  such as Downloads, would not be readable by Frame Server. Then, as the user, it runs
+  `--install`, creates a Start menu shortcut and starts the tray app. Running it again upgrades:
+  it stops the tray app and Frame Server before replacing the files.
+- **`Uninstall.bat`**, copied to the install folder, reverses everything, and optionally deletes
+  `%ProgramData%\CameraEmulator`.
+
 ## Install (once, elevated)
 
 Frame Server is a service, so the COM class must be registered machine-wide. Run this from an

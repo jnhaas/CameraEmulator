@@ -1,3 +1,6 @@
 build/
 out/
 .vs/
+dist/
+build-package/
+tools/sign-config.bat

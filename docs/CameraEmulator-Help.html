@@ -81,19 +81,26 @@ also available for scripts.</p>
 </ul>
 <h3>Steps</h3>
 <ol>
-  <li>Copy the CameraEmulator files to a permanent folder, for example <code>C:\Tools\CameraEmulator</code>:
-    <code>CameraEmulatorTray.exe</code>, <code>CameraEmulator.exe</code>, <code>CameraEmulatorSource.dll</code>
-    and this help file.</li>
-  <li>Register the camera component. Open a <strong>Command Prompt as administrator</strong> (Start menu, type
-    <em>cmd</em>, right-click <em>Run as administrator</em>), then run:
-    <pre><code>regsvr32 "C:\Tools\CameraEmulator\CameraEmulatorSource.dll"</code></pre>
-    A message confirms the registration.</li>
-  <li>Start <code>CameraEmulatorTray.exe</code>. The camera icon appears in the notification area.</li>
+  <li>Extract <strong>all</strong> the files of the CameraEmulator zip file to a folder, for example your
+    Downloads folder. Right-click the zip file, then <em>Extract All…</em></li>
+  <li>In the extracted folder, double-click <strong>Install.bat</strong>, press a key, and accept the
+    administrator prompt.</li>
 </ol>
-<div class="note warn"><strong>Keep the folder where it is.</strong> Windows loads
-<code>CameraEmulatorSource.dll</code> from the folder where you registered it. If you move the files, run
-<code>regsvr32</code> again from the new location. Avoid folders inside your user profile, such as Desktop or
-Documents: the Windows camera service may not be allowed to read them.</div>
+<p>The installer:</p>
+<ul>
+  <li>copies the program to <code>C:\Program Files\CameraEmulator</code> and registers the camera component;</li>
+  <li>creates the camera, permanently, for your Windows account;</li>
+  <li>adds <strong>CameraEmulator</strong> to the Start menu;</li>
+  <li>starts the tray app: the camera icon appears in the notification area.</li>
+</ul>
+<p>You can delete the extracted folder afterwards. To upgrade to a new version, run the new
+<strong>Install.bat</strong>: it replaces the program files and keeps your image and settings.</p>
+<div class="note warn"><strong>Installing manually.</strong> If you don't use Install.bat, copy the files to a
+folder outside your user profile, such as <code>C:\Tools\CameraEmulator</code>. The Windows camera service can't
+read folders like Desktop, Documents or Downloads. Then register the camera component from a
+<strong>Command Prompt as administrator</strong>:
+<pre><code>regsvr32 "C:\Tools\CameraEmulator\CameraEmulatorSource.dll"</code></pre>
+Windows loads the component from that folder: if you move the files, register them again.</div>
 
 <h2 id="quickstart">3. Quick start</h2>
 <ol>
@@ -289,13 +296,14 @@ editing the file.</p>
 <code>C:\ProgramData\CameraEmulator</code> (<em>Open settings folder</em>).</p>
 
 <h2 id="uninstall">12. Uninstalling</h2>
-<ol>
-  <li>In the tray menu, uncheck <strong>Start with Windows</strong> and <strong>Keep the camera when this app is
-    closed</strong>, then choose <strong>Exit</strong>.</li>
-  <li>In a <strong>Command Prompt as administrator</strong>:
-    <pre><code>regsvr32 /u "C:\Tools\CameraEmulator\CameraEmulatorSource.dll"</code></pre></li>
-  <li>Delete the program folder and <code>C:\ProgramData\CameraEmulator</code>.</li>
-</ol>
+<p>Run <strong>Uninstall.bat</strong> in <code>C:\Program Files\CameraEmulator</code>, confirm, and accept the
+administrator prompt. It closes the tray app and removes the camera, the startup entry, the Start menu shortcut,
+the camera component and the program folder. It asks whether to also delete your image and settings
+(<code>C:\ProgramData\CameraEmulator</code>).</p>
+<p>If you installed manually: in the tray menu, uncheck <strong>Start with Windows</strong> and <strong>Keep the
+camera when this app is closed</strong>, choose <strong>Exit</strong>, run
+<code>regsvr32 /u "C:\Tools\CameraEmulator\CameraEmulatorSource.dll"</code> as administrator, then delete the
+program folder and <code>C:\ProgramData\CameraEmulator</code>.</p>
 
 </main>
 </body>
