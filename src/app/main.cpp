@@ -13,6 +13,7 @@
 
 #include <windows.h>
 #include <mfapi.h>
+#include <mfidl.h>
 #include <mfvirtualcamera.h>
 #include <wrl/client.h>
 #include <cstdio>
@@ -147,19 +148,98 @@ namespace
         if (screenRegion) PrintRegion(L"Last region (reuse with --screen):", region);
     }
 
-    int RunCamera(const RECT* screenRegion)
+    bool VirtualCamerasSupported()
     {
         BOOL supported = FALSE;
         if (FAILED(MFIsVirtualCameraTypeSupported(MFVirtualCameraType_SoftwareCameraSource, &supported)) || !supported)
         {
             fwprintf(stderr, L"Virtual cameras are not supported on this system (Windows 11 required).\n");
+            return false;
+        }
+        return true;
+    }
+
+    HRESULT CreateCamera(MFVirtualCameraLifetime lifetime, ComPtr<IMFVirtualCamera>& camera)
+    {
+        return MFCreateVirtualCamera(MFVirtualCameraType_SoftwareCameraSource, lifetime, MFVirtualCameraAccess_CurrentUser,
+            CAMERAEMULATOR_FRIENDLY_NAME, CAMERAEMULATOR_CLSID_STRING, nullptr, 0, &camera);
+    }
+
+    // True if a CameraEmulator camera is already visible: installed with --install, or exposed
+    // by another running instance.
+    bool CameraExists()
+    {
+        ComPtr<IMFAttributes> query;
+        if (FAILED(MFCreateAttributes(&query, 1)) ||
+            FAILED(query->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID)))
+        {
+            return false;
+        }
+        IMFActivate** devices = nullptr;
+        UINT32 count = 0;
+        if (FAILED(MFEnumDeviceSources(query.Get(), &devices, &count))) return false;
+
+        bool found = false;
+        for (UINT32 i = 0; i < count; ++i)
+        {
+            wchar_t* name = nullptr;
+            UINT32 length = 0;
+            // Windows appends a localized suffix to virtual cameras, e.g. "CameraEmulator (Windows Virtual Camera)".
+            const size_t prefixLength = wcslen(CAMERAEMULATOR_FRIENDLY_NAME);
+            if (SUCCEEDED(devices[i]->GetAllocatedString(MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME, &name, &length)) &&
+                _wcsnicmp(name, CAMERAEMULATOR_FRIENDLY_NAME, prefixLength) == 0 &&
+                (name[prefixLength] == L'\0' || wcsncmp(name + prefixLength, L" (", 2) == 0))
+            {
+                found = true;
+            }
+            CoTaskMemFree(name);
+            devices[i]->Release();
+        }
+        CoTaskMemFree(devices);
+        return found;
+    }
+
+    // System lifetime: the camera persists (across reboots) until --uninstall, so the Android
+    // emulator always finds it. Frames come from the source DLL in Frame Server and do not need
+    // this app to be running.
+    int InstallCamera()
+    {
+        if (!VirtualCamerasSupported()) return 1;
+        ComPtr<IMFVirtualCamera> camera;
+        HRESULT hr = CreateCamera(MFVirtualCameraLifetime_System, camera);
+        if (FAILED(hr)) return Fail(L"MFCreateVirtualCamera", hr);
+        hr = camera->Start(nullptr);
+        camera->Shutdown();
+        if (FAILED(hr))
+        {
+            Fail(L"IMFVirtualCamera::Start", hr);
+            fwprintf(stderr, L"Is CameraEmulatorSource.dll registered? Run 'regsvr32 CameraEmulatorSource.dll' as administrator.\n");
             return 1;
         }
+        wprintf(L"Virtual camera \"%s\" installed. It stays available until you run --uninstall.\n", CAMERAEMULATOR_FRIENDLY_NAME);
+        return 0;
+    }
+
+    int UninstallCamera()
+    {
+        if (!VirtualCamerasSupported()) return 1;
+        ComPtr<IMFVirtualCamera> camera;
+        HRESULT hr = CreateCamera(MFVirtualCameraLifetime_System, camera);
+        if (FAILED(hr)) return Fail(L"MFCreateVirtualCamera", hr);
+        hr = camera->Remove();
+        camera->Shutdown();
+        if (FAILED(hr)) return Fail(L"IMFVirtualCamera::Remove", hr);
+        wprintf(L"Virtual camera \"%s\" uninstalled.\n", CAMERAEMULATOR_FRIENDLY_NAME);
+        return 0;
+    }
+
+    int RunCamera(const RECT* screenRegion)
+    {
+        if (!VirtualCamerasSupported()) return 1;
 
         // Session lifetime: the camera disappears when this process exits.
         ComPtr<IMFVirtualCamera> camera;
-        HRESULT hr = MFCreateVirtualCamera(MFVirtualCameraType_SoftwareCameraSource, MFVirtualCameraLifetime_Session,
-            MFVirtualCameraAccess_CurrentUser, CAMERAEMULATOR_FRIENDLY_NAME, CAMERAEMULATOR_CLSID_STRING, nullptr, 0, &camera);
+        HRESULT hr = CreateCamera(MFVirtualCameraLifetime_Session, camera);
         if (FAILED(hr)) return Fail(L"MFCreateVirtualCamera", hr);
 
         hr = camera->Start(nullptr);
@@ -190,6 +270,8 @@ int wmain(int argc, wchar_t** argv)
     setvbuf(stdout, nullptr, _IONBF, 0);
 
     bool updateOnly = false;
+    bool install = false;
+    bool uninstall = false;
     const wchar_t* image = nullptr;
     const wchar_t* layout = nullptr;
     bool screen = false;
@@ -201,6 +283,14 @@ int wmain(int argc, wchar_t** argv)
         if (_wcsicmp(argv[i], L"--update") == 0)
         {
             updateOnly = true;
+        }
+        else if (_wcsicmp(argv[i], L"--install") == 0)
+        {
+            install = true;
+        }
+        else if (_wcsicmp(argv[i], L"--uninstall") == 0)
+        {
+            uninstall = true;
         }
         else if (_wcsicmp(argv[i], L"--screen") == 0 && !screen)
         {
@@ -230,13 +320,21 @@ int wmain(int argc, wchar_t** argv)
             validArgs = false;
         }
     }
+    const int modes = (install ? 1 : 0) + (uninstall ? 1 : 0) + (updateOnly ? 1 : 0);
+    if (modes > 1 || ((install || uninstall) && screen)) validArgs = false;
     if (!validArgs)
     {
         fwprintf(stderr,
             L"Usage:\n"
-            L"  %s [--layout android|fit] [--screen [x,y,w,h | wxh]] [image.png]  run the virtual camera\n"
+            L"  %s --install [--layout android|fit] [image.png]\n"
+            L"      install the camera permanently (survives restarts of this app and reboots)\n"
+            L"  %s --uninstall\n"
+            L"      remove the installed camera\n"
+            L"  %s [--layout android|fit] [--screen [x,y,w,h | wxh]] [image.png]\n"
+            L"      apply the settings; if the camera is not installed, expose it until Ctrl+C;\n"
+            L"      with --screen, broadcast the zone until Ctrl+C\n"
             L"  %s --update [--layout android|fit] [--screen [x,y,w,h | wxh]] [image.png]\n"
-            L"      change a running camera; with --screen, broadcast to it until Ctrl+C\n"
+            L"      only apply the settings; with --screen, broadcast to the existing camera until Ctrl+C\n"
             L"\n"
             L"Layouts: android (default) compensates the Android emulator's crop of webcam frames\n"
             L"         for portrait devices; fit letterboxes the image for regular apps.\n"
@@ -244,7 +342,7 @@ int wmain(int argc, wchar_t** argv)
             L"         it on the monitor under the mouse. Without a value, drag a rectangle with the\n"
             L"         mouse (Esc cancels). Drag the red frame to move the zone while it runs. The\n"
             L"         image is shown again when the broadcast stops.\n",
-            argv[0], argv[0]);
+            argv[0], argv[0], argv[0], argv[0]);
         return 2;
     }
 
@@ -274,23 +372,37 @@ int wmain(int argc, wchar_t** argv)
     }
     if (updateOnly && !screen) return 0;
 
-    g_stopEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    SetConsoleCtrlHandler(OnConsoleCtrl, TRUE);
-
-    if (updateOnly)
-    {
-        // Feed a camera that is already running (in another CameraEmulator.exe).
-        wprintf(L"Broadcasting to the running camera. Press Ctrl+C to stop.\n");
-        RunUntilStopped(&screenRegion);
-        return 0;
-    }
-
     HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (FAILED(hr)) return Fail(L"CoInitializeEx", hr);
     hr = MFStartup(MF_VERSION);
     if (FAILED(hr)) return Fail(L"MFStartup", hr);
 
-    const int result = RunCamera(screen ? &screenRegion : nullptr);
+    g_stopEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    SetConsoleCtrlHandler(OnConsoleCtrl, TRUE);
+
+    int result = 0;
+    if (install)
+    {
+        result = InstallCamera();
+    }
+    else if (uninstall)
+    {
+        result = UninstallCamera();
+    }
+    else if (updateOnly || CameraExists())
+    {
+        // The camera is installed or exposed by another instance: never create a duplicate.
+        if (!updateOnly) wprintf(L"Camera \"%s\" already exists; settings applied.\n", CAMERAEMULATOR_FRIENDLY_NAME);
+        if (screen)
+        {
+            wprintf(L"Broadcasting to the existing camera. Press Ctrl+C to stop.\n");
+            RunUntilStopped(&screenRegion);
+        }
+    }
+    else
+    {
+        result = RunCamera(screen ? &screenRegion : nullptr);
+    }
 
     MFShutdown();
     CoUninitialize();

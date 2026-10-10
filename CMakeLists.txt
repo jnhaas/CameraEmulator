@@ -29,7 +29,7 @@ target_link_libraries(CameraEmulatorSource PRIVATE mfplat mfuuid windowscodecs o
 # Control app: publishes the PNG and registers the virtual camera.
 add_executable(CameraEmulator src/app/main.cpp src/app/ScreenCapture.cpp)
 target_include_directories(CameraEmulator PRIVATE src/common)
-target_link_libraries(CameraEmulator PRIVATE mfplat mfsensorgroup ole32 shell32 user32 gdi32 shcore)
+target_link_libraries(CameraEmulator PRIVATE mf mfplat mfuuid mfsensorgroup ole32 shell32 user32 gdi32 shcore)
 
 # Test harness: loads the source DLL directly and dumps a frame, no Frame Server involved.
 add_executable(SourceTest tests/SourceTest.cpp)

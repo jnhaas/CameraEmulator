@@ -56,12 +56,32 @@ rebuild is not picked up until the service restarts:
 
 ## Run
 
+### Permanent camera (recommended)
+
 ```bat
-build\Release\CameraEmulator.exe path\to\image.png
+build\Release\CameraEmulator.exe --install path\to\image.png
 ```
 
-The camera, named **CameraEmulator**, exists until you press Ctrl+C. To change the image or the
-layout while it runs:
+This installs the camera, named **CameraEmulator**, for your user account. No administrator
+rights are needed. The camera stays available across restarts and reboots until you run
+`--uninstall`, and it shows the image without `CameraEmulator.exe` running, because frames come
+from the source DLL inside Frame Server. The Android emulator therefore always finds it. Without
+it, starting an AVD whose camera is set to a missing webcam makes the Android camera app crash.
+
+With the camera installed, `CameraEmulator.exe` only changes settings or broadcasts the screen.
+It never creates a second camera:
+
+```bat
+build\Release\CameraEmulator.exe path\to\other.png
+build\Release\CameraEmulator.exe --layout fit
+build\Release\CameraEmulator.exe --screen 800x600
+build\Release\CameraEmulator.exe --uninstall
+```
+
+### Temporary camera
+
+If the camera isn't installed, `CameraEmulator.exe [image.png]` exposes it only until you press
+Ctrl+C. To change the image or the layout while it runs:
 
 ```bat
 build\Release\CameraEmulator.exe --update path\to\other.png
@@ -127,6 +147,9 @@ Use the `webcamN` name that `-webcam-list` reports for CameraEmulator. You can a
   desktop apps to access the camera.
 - **`IMFVirtualCamera::Start` fails:** the DLL is not registered, or it is in a folder
   `LOCAL SERVICE` cannot read.
+- **"Can't connect to the camera" right after the AVD starts:** the AVD resumed from a quick-boot
+  snapshot that had the camera app open, and that camera session is stale. Close and reopen the
+  camera app, or start the AVD with `-no-snapshot-load`.
 - **Image cropped or zoomed in the emulator:** check the layout is `android`, and that the AVD
   really uses CameraEmulator. `hw.camera.back=webcamN` in `config.ini` refers to the
   `-webcam-list` order, which changes when other cameras appear.
