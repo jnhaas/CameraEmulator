@@ -9,7 +9,7 @@
 // Produces frames for one media type. Sources, by priority:
 //   1. the live screen capture published by CameraEmulator.exe --screen (see ScreenShare.h);
 //   2. the shared image, re-read whenever the file changes on disk;
-//   3. a color-bar test pattern.
+//   3. the default image embedded in this DLL (color bars if it cannot be decoded).
 // Pictures are fitted into the frame according to the layout setting (see Shared.h), which is
 // re-read once per second.
 //
@@ -25,7 +25,8 @@ public:
 private:
     bool RefreshLayout();
     void ReloadImageIfChanged(bool force);
-    HRESULT DecodeImage(std::vector<BYTE>& bgra);
+    void ShowDefaultImage();
+    HRESULT DecodeImage(const BYTE* data, size_t size, std::vector<BYTE>& bgra);
     HRESULT ComposeScreen(std::vector<BYTE>& bgra);
     HRESULT Compose(IWICBitmapSource* source, WICBitmapInterpolationMode interpolation, std::vector<BYTE>& bgra);
     void DrawTestPattern(std::vector<BYTE>& bgra) const;

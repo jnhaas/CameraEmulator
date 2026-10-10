@@ -12,6 +12,8 @@
 //       Only apply the settings; with --screen, broadcast to the existing camera.
 //   CameraEmulator.exe --set-image image.png
 //       Same as --update image.png.
+//   CameraEmulator.exe --update --default-image
+//       Go back to the default image built into the source DLL.
 
 #include <windows.h>
 #include <mfapi.h>
@@ -150,7 +152,9 @@ namespace
             L"         mouse (Esc cancels). Drag the red frame to move the zone while it runs. The\n"
             L"         image is shown again when the broadcast stops.\n"
             L"--stop-key KEYS  global shortcut that stops the broadcast (default ctrl+alt+x), e.g.\n"
-            L"         ctrl+shift+f12: modifiers ctrl, alt, shift, win plus a letter, digit or F1-F24.\n",
+            L"         ctrl+shift+f12: modifiers ctrl, alt, shift, win plus a letter, digit or F1-F24.\n"
+            L"--default-image  remove the published image: the camera shows its built-in default\n"
+            L"         image (also the case before any image is published).\n",
             exe, exe, exe, exe);
     }
 }
@@ -166,6 +170,7 @@ int wmain(int argc, wchar_t** argv)
     bool install = false;
     bool uninstall = false;
     const wchar_t* image = nullptr;
+    bool defaultImage = false;
     const wchar_t* layout = nullptr;
     Hotkey stopKey;
     ParseHotkey(ReadSetting(CameraEmulator::kScreenSection, CameraEmulator::kStopKeyKey, L"ctrl+alt+x").c_str(), stopKey);
@@ -187,6 +192,7 @@ int wmain(int argc, wchar_t** argv)
                 ++i;
             }
         }
+        else if (_wcsicmp(argv[i], L"--default-image") == 0) defaultImage = true;
         else if (_wcsicmp(argv[i], L"--set-image") == 0 && i + 1 < argc && !image)
         {
             updateOnly = true;
@@ -211,7 +217,7 @@ int wmain(int argc, wchar_t** argv)
         }
     }
     const int modes = (install ? 1 : 0) + (uninstall ? 1 : 0) + (updateOnly ? 1 : 0);
-    if (modes > 1 || ((install || uninstall) && screen)) validArgs = false;
+    if (modes > 1 || ((install || uninstall) && screen) || (defaultImage && image)) validArgs = false;
     if (!validArgs)
     {
         PrintUsage(argv[0]);
@@ -235,7 +241,13 @@ int wmain(int argc, wchar_t** argv)
         if (FAILED(hr)) return Fail(L"Saving the layout", hr);
         wprintf(L"Layout set to %s\n", value);
     }
-    if (image)
+    if (defaultImage)
+    {
+        const HRESULT hr = UseDefaultImage();
+        if (FAILED(hr)) return Fail(L"Removing the image", hr);
+        wprintf(L"The camera shows the default image.\n");
+    }
+    else if (image)
     {
         const HRESULT hr = PublishImage(image);
         if (FAILED(hr)) return Fail(L"Publishing the image", hr);
@@ -243,7 +255,7 @@ int wmain(int argc, wchar_t** argv)
     }
     else if (PublishedImageName().empty())
     {
-        wprintf(L"No image published yet; the camera will show color bars.\n");
+        wprintf(L"No image published: the camera shows the default image.\n");
     }
     if (updateOnly && !screen) return 0;
 

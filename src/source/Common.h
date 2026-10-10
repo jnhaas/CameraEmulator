@@ -35,3 +35,6 @@ constexpr UINT32 kFrameRate = 30;
 constexpr LONGLONG kFrameDuration = 10'000'000 / kFrameRate; // 100 ns units
 
 void Trace(const wchar_t* format, ...);
+
+// This DLL, for loading its resources.
+HMODULE ModuleHandle();

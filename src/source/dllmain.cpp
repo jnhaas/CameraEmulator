@@ -19,6 +19,11 @@ namespace
     }
 }
 
+HMODULE ModuleHandle()
+{
+    return g_module;
+}
+
 // Goes to OutputDebugString (DebugView) and, best effort, to %ProgramData%\CameraEmulator\source.log.
 void Trace(const wchar_t* format, ...)
 {

@@ -74,6 +74,16 @@ namespace CameraControl
         return name.empty() ? L"image.png" : name;
     }
 
+    HRESULT UseDefaultImage()
+    {
+        if (!DeleteFileW(CameraEmulator::SharedImagePath().c_str()) && GetLastError() != ERROR_FILE_NOT_FOUND)
+        {
+            return HRESULT_FROM_WIN32(GetLastError());
+        }
+        WriteSetting(CameraEmulator::kSettingsSection, kImageNameKey, nullptr); // removes the key
+        return S_OK;
+    }
+
     HRESULT PublishLayout(const wchar_t* layout)
     {
         return WriteSetting(CameraEmulator::kSettingsSection, CameraEmulator::kLayoutKey, layout);

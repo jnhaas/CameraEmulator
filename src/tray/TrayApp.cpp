@@ -54,6 +54,8 @@ namespace
         // Added later; appended to keep the IDs above stable for scripts.
         CmdZone300x300,
         CmdStartBroadcast,
+        CmdDefaultImage,
+        CmdHelp,
     };
 
     // Zone used by "Start broadcast": a centered size ("300x300") or the exact last zone ("last").
@@ -256,6 +258,18 @@ namespace
         vswprintf_s(message, format, args);
         va_end(args);
         WriteLog(message);
+    }
+
+    // The user guide, copied next to the executables by the build.
+    void OpenHelp()
+    {
+        std::wstring path = ExecutablePath();
+        path = path.substr(0, path.find_last_of(L'\\') + 1) + L"CameraEmulator-Help.html";
+        if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES ||
+            reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL)) <= 32)
+        {
+            MessageBoxW(nullptr, (L"The help file was not found:\n" + path).c_str(), L"CameraEmulator", MB_ICONWARNING);
+        }
     }
 
     std::wstring ErrorText(const wchar_t* what, HRESULT hr)
@@ -468,7 +482,7 @@ namespace
                    std::to_wstring(m_region.bottom - m_region.top) + L" zone";
         }
         const std::wstring image = PublishedImageName();
-        return L"CameraEmulator - showing " + (image.empty() ? std::wstring(L"color bars") : image);
+        return L"CameraEmulator - showing " + (image.empty() ? std::wstring(L"the default image") : image);
     }
 
     void TrayApp::ShowMenu()
@@ -510,6 +524,7 @@ namespace
         AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(zones), L"Choose zone and start");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(menu, MF_STRING, CmdChooseImage, L"Choose image...");
+        AppendMenuW(menu, MF_STRING | (PublishedImageName().empty() ? MF_GRAYED : 0), CmdDefaultImage, L"Use default image");
 
         const bool android = AndroidLayout();
         HMENU layouts = CreatePopupMenu();
@@ -521,6 +536,7 @@ namespace
         AppendMenuW(menu, MF_STRING | (IsInstalled() ? MF_CHECKED : 0), CmdKeepInstalled, L"Keep the camera when this app is closed");
         AppendMenuW(menu, MF_STRING | (StartsWithWindows() ? MF_CHECKED : 0), CmdStartWithWindows, L"Start with Windows");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, CmdHelp, L"Help");
         AppendMenuW(menu, MF_STRING, CmdOpenFolder, L"Open settings folder");
         AppendMenuW(menu, MF_STRING, CmdExit, L"Exit");
 
@@ -538,6 +554,12 @@ namespace
         RECT region{};
         switch (command)
         {
+        case CmdDefaultImage:
+        {
+            const HRESULT hr = UseDefaultImage();
+            if (FAILED(hr)) Notify(ErrorText(L"Removing the image", hr), true);
+            break;
+        }
         case CmdChooseImage:
             ChooseImage();
             break;
@@ -586,6 +608,9 @@ namespace
             if (FAILED(hr)) Notify(ErrorText(L"Changing the startup setting", hr), true);
             break;
         }
+        case CmdHelp:
+            OpenHelp();
+            break;
         case CmdOpenFolder:
             ShellExecuteW(nullptr, L"open", CameraEmulator::SharedFolder().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
             break;

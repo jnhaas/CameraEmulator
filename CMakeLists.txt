@@ -22,6 +22,7 @@ add_library(CameraEmulatorSource SHARED
     src/source/FrameGenerator.cpp
     src/source/ScreenFeed.cpp
     src/source/CameraEmulatorSource.def
+    src/source/CameraEmulatorSource.rc
 )
 target_include_directories(CameraEmulatorSource PRIVATE src/common)
 target_link_libraries(CameraEmulatorSource PRIVATE mfplat mfuuid windowscodecs ole32 shell32 advapi32 runtimeobject)
@@ -45,3 +46,7 @@ target_link_libraries(ReaderTest PRIVATE mfplat mfuuid mfreadwrite mf ole32)
 add_executable(CameraEmulatorTray WIN32 src/tray/TrayApp.cpp src/app/CameraControl.cpp src/app/ScreenCapture.cpp)
 target_include_directories(CameraEmulatorTray PRIVATE src/common src/app)
 target_link_libraries(CameraEmulatorTray PRIVATE mf mfplat mfuuid mfsensorgroup ole32 shell32 user32 gdi32 shcore advapi32)
+
+# End-user help, opened from the tray menu: keep it next to the executables.
+add_custom_command(TARGET CameraEmulatorTray POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/docs/CameraEmulator-Help.html $<TARGET_FILE_DIR:CameraEmulatorTray>)

@@ -1,4 +1,5 @@
 #include "FrameGenerator.h"
+#include "resource.h"
 #include <algorithm>
 
 namespace
@@ -96,9 +97,7 @@ void FrameGenerator::ReloadImageIfChanged(bool force)
     {
         if (force || m_showingImage || m_frame.empty())
         {
-            std::vector<BYTE> bgra;
-            DrawTestPattern(bgra);
-            Encode(bgra);
+            ShowDefaultImage();
             m_showingImage = false;
         }
         return;
@@ -107,8 +106,11 @@ void FrameGenerator::ReloadImageIfChanged(bool force)
     const ULONGLONG size = (static_cast<ULONGLONG>(info.nFileSizeHigh) << 32) | info.nFileSizeLow;
     if (!force && m_showingImage && size == m_imageSize && CompareFileTime(&info.ftLastWriteTime, &m_imageWriteTime) == 0) return;
 
+    // Decode from memory so we never hold the file open.
+    std::vector<BYTE> file;
     std::vector<BYTE> bgra;
-    HRESULT hr = DecodeImage(bgra);
+    HRESULT hr = ReadWholeFile(m_imagePath, file);
+    if (SUCCEEDED(hr)) hr = DecodeImage(file.data(), file.size(), bgra);
     if (SUCCEEDED(hr))
     {
         Encode(bgra);
@@ -121,25 +123,34 @@ void FrameGenerator::ReloadImageIfChanged(bool force)
     {
         // Keep the previous frame and retry on the next check (the file may be mid-write).
         Trace(L"Failed to decode %s: 0x%08X", m_imagePath.c_str(), hr);
-        if (m_frame.empty() || force)
-        {
-            DrawTestPattern(bgra);
-            Encode(bgra);
-        }
+        if (m_frame.empty() || force) ShowDefaultImage();
     }
 }
 
-HRESULT FrameGenerator::DecodeImage(std::vector<BYTE>& bgra)
+void FrameGenerator::ShowDefaultImage()
+{
+    // PNG embedded in this DLL (CameraEmulatorSource.rc). Color bars only if that fails.
+    std::vector<BYTE> bgra;
+    HRESULT hr = E_FAIL;
+    HRSRC resource = FindResourceW(ModuleHandle(), MAKEINTRESOURCEW(IDR_DEFAULT_IMAGE), RT_RCDATA);
+    HGLOBAL loaded = resource ? LoadResource(ModuleHandle(), resource) : nullptr;
+    const void* data = loaded ? LockResource(loaded) : nullptr;
+    if (data) hr = DecodeImage(static_cast<const BYTE*>(data), SizeofResource(ModuleHandle(), resource), bgra);
+    if (FAILED(hr))
+    {
+        Trace(L"Failed to decode the default image: 0x%08X", hr);
+        DrawTestPattern(bgra);
+    }
+    Encode(bgra);
+}
+
+HRESULT FrameGenerator::DecodeImage(const BYTE* data, size_t size, std::vector<BYTE>& bgra)
 {
     if (!m_wic) return E_NOT_VALID_STATE;
 
-    // Decode from memory so we never hold the file open.
-    std::vector<BYTE> file;
-    RETURN_IF_FAILED(ReadWholeFile(m_imagePath, file));
-
     ComPtr<IWICStream> stream;
     RETURN_IF_FAILED(m_wic->CreateStream(&stream));
-    RETURN_IF_FAILED(stream->InitializeFromMemory(file.data(), static_cast<DWORD>(file.size())));
+    RETURN_IF_FAILED(stream->InitializeFromMemory(const_cast<BYTE*>(data), static_cast<DWORD>(size)));
 
     ComPtr<IWICBitmapDecoder> decoder;
     RETURN_IF_FAILED(m_wic->CreateDecoderFromStream(stream.Get(), nullptr, WICDecodeMetadataCacheOnLoad, &decoder));

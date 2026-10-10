@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CameraEmulator – User Guide</title>
+<style>
+  :root { --accent: #0078d7; --text: #1f2933; --muted: #5f6b7a; --border: #d9e0e8; --soft: #f4f7fa; }
+  body { font-family: "Segoe UI", system-ui, sans-serif; color: var(--text); line-height: 1.55; margin: 0; background: #fff; }
+  header { background: linear-gradient(180deg, #202e42, #0e141e); color: #fff; padding: 32px 24px; }
+  header h1 { margin: 0 0 4px; font-size: 2em; }
+  header p { margin: 0; color: #aab9cd; }
+  main { max-width: 860px; margin: 0 auto; padding: 8px 24px 48px; }
+  nav { background: var(--soft); border: 1px solid var(--border); border-radius: 8px; padding: 12px 20px; margin: 24px 0; }
+  nav ol { margin: 6px 0; padding-left: 20px; columns: 2; }
+  h2 { border-bottom: 2px solid var(--border); padding-bottom: 4px; margin-top: 40px; }
+  h3 { margin-top: 24px; }
+  code, kbd { font-family: Consolas, monospace; font-size: 0.92em; }
+  code { background: var(--soft); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
+  pre { background: #0e141e; color: #e6edf5; border-radius: 6px; padding: 12px 16px; overflow-x: auto; }
+  pre code { background: none; border: none; padding: 0; color: inherit; }
+  kbd { background: #fff; border: 1px solid #b8c2cc; border-bottom-width: 2px; border-radius: 4px; padding: 1px 6px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--soft); }
+  .note { border-left: 4px solid var(--accent); background: #eef6fd; padding: 10px 14px; border-radius: 0 6px 6px 0; margin: 16px 0; }
+  .warn { border-left-color: #d97706; background: #fff7ea; }
+  .menu { font-family: "Segoe UI", sans-serif; background: var(--soft); border: 1px solid var(--border); border-radius: 6px; padding: 10px 16px; }
+  .menu div { padding: 2px 0; }
+  .menu .sep { border-top: 1px solid var(--border); margin: 6px 0; padding: 0; }
+  .menu .grey { color: var(--muted); }
+  .menu .sub { padding-left: 24px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>CameraEmulator</h1>
+  <p>A virtual webcam for Windows 11 that feeds the Android Emulator with an image or a zone of your screen.</p>
+</header>
+<main>
+
+<nav>
+  <strong>Contents</strong>
+  <ol>
+    <li><a href="#what">What CameraEmulator does</a></li>
+    <li><a href="#install">Installation</a></li>
+    <li><a href="#quickstart">Quick start</a></li>
+    <li><a href="#android">Using it in the Android Emulator</a></li>
+    <li><a href="#image">Showing an image</a></li>
+    <li><a href="#screen">Broadcasting a zone of the screen</a></li>
+    <li><a href="#layout">Layouts</a></li>
+    <li><a href="#tray">Tray menu reference</a></li>
+    <li><a href="#cli">Command line reference</a></li>
+    <li><a href="#settings">Settings file</a></li>
+    <li><a href="#troubleshooting">Troubleshooting</a></li>
+    <li><a href="#uninstall">Uninstalling</a></li>
+  </ol>
+</nav>
+
+<h2 id="what">1. What CameraEmulator does</h2>
+<p>CameraEmulator adds a webcam named <strong>CameraEmulator</strong> to Windows. Any program that uses a
+webcam can select it, and in particular the Android Emulator, which can then show it as the phone's camera.
+This lets you test camera features of an Android app, such as QR code or barcode scanning, without a real
+camera.</p>
+<p>The camera can show:</p>
+<ul>
+  <li><strong>an image</strong> of your choice (PNG, JPEG, BMP, GIF, TIFF), for example a QR code;</li>
+  <li><strong>a zone of your screen</strong>, live at 30 frames per second, for example a QR code displayed in a
+    browser or another program;</li>
+  <li>a <strong>default image</strong> with the CameraEmulator logo when nothing else is selected.</li>
+</ul>
+<p>Everything is controlled from an icon in the notification area (the system tray). A command-line tool is
+also available for scripts.</p>
+
+<h2 id="install">2. Installation</h2>
+<h3>Requirements</h3>
+<ul>
+  <li>Windows 11 (virtual cameras are not available on Windows 10).</li>
+  <li>The Android SDK Emulator, if you want to use the camera in Android.</li>
+  <li>Administrator rights, once, for step 2 below.</li>
+</ul>
+<h3>Steps</h3>
+<ol>
+  <li>Copy the CameraEmulator files to a permanent folder, for example <code>C:\Tools\CameraEmulator</code>:
+    <code>CameraEmulatorTray.exe</code>, <code>CameraEmulator.exe</code>, <code>CameraEmulatorSource.dll</code>
+    and this help file.</li>
+  <li>Register the camera component. Open a <strong>Command Prompt as administrator</strong> (Start menu, type
+    <em>cmd</em>, right-click <em>Run as administrator</em>), then run:
+    <pre><code>regsvr32 "C:\Tools\CameraEmulator\CameraEmulatorSource.dll"</code></pre>
+    A message confirms the registration.</li>
+  <li>Start <code>CameraEmulatorTray.exe</code>. The camera icon appears in the notification area.</li>
+</ol>
+<div class="note warn"><strong>Keep the folder where it is.</strong> Windows loads
+<code>CameraEmulatorSource.dll</code> from the folder where you registered it. If you move the files, run
+<code>regsvr32</code> again from the new location. Avoid folders inside your user profile, such as Desktop or
+Documents: the Windows camera service may not be allowed to read them.</div>
+
+<h2 id="quickstart">3. Quick start</h2>
+<ol>
+  <li>Start <code>CameraEmulatorTray.exe</code>.</li>
+  <li>Click the camera icon in the notification area. Windows 11 may hide new icons behind the <strong>^</strong>
+    arrow: drag the icon onto the taskbar to keep it visible.</li>
+  <li>Check <strong>Keep the camera when this app is closed</strong>, so that the camera is always present,
+    even after a reboot (recommended for the Android Emulator).</li>
+  <li>Optionally check <strong>Start with Windows</strong>.</li>
+  <li>Choose what the camera shows: <strong>Choose image…</strong>, or <strong>Start broadcast</strong> to
+    show a zone of the screen.</li>
+  <li>Configure your Android virtual device to use the CameraEmulator webcam (next section).</li>
+</ol>
+
+<h2 id="android">4. Using it in the Android Emulator</h2>
+<h3>Find the name of the webcam</h3>
+<p>The Android Emulator names webcams <code>webcam0</code>, <code>webcam1</code>, and so on. To see which one
+is CameraEmulator, run this in a command prompt (adjust the SDK path if needed):</p>
+<pre><code>"%LOCALAPPDATA%\Android\Sdk\emulator\emulator.exe" -webcam-list</code></pre>
+<p>Look for the line <em>Camera 'CameraEmulator (…)' can be specified by label as 'webcam1'</em>.</p>
+<div class="note">The numbering follows the list of cameras present on the PC. It can change when you plug in
+or remove another camera. Check it again if the wrong camera shows up.</div>
+
+<h3>Select it as the back camera</h3>
+<p><strong>In Android Studio:</strong> <em>Device Manager</em> → <em>Edit</em> (pencil icon) on your virtual
+device → <em>Advanced Settings</em> → <em>Back camera</em> → <em>Webcam1</em> (the name found above).</p>
+<p><strong>Or in the device's configuration file</strong>, while the emulator is closed:
+<code>%USERPROFILE%\.android\avd\&lt;device name&gt;.avd\config.ini</code></p>
+<pre><code>hw.camera.back=webcam1</code></pre>
+<p><strong>Or for one session only</strong>, on the command line:</p>
+<pre><code>emulator -avd &lt;device name&gt; -camera-back webcam1</code></pre>
+<p>Then open the camera app, or your own app, in the emulated phone.</p>
+
+<h2 id="image">5. Showing an image</h2>
+<p>Click the tray icon → <strong>Choose image…</strong> and select a picture. The camera switches to it within
+about a second, even if an app is already using the camera. The image is fitted into the camera picture
+without distortion; the remaining space is black, and transparent areas also show as black.</p>
+<p>To go back to the built-in picture, choose <strong>Use default image</strong>.</p>
+<p>The image you choose is copied to <code>C:\ProgramData\CameraEmulator\image.png</code>, so you can move or
+delete the original file afterwards.</p>
+
+<h2 id="screen">6. Broadcasting a zone of the screen</h2>
+<p>Instead of a fixed image, the camera can show a live zone of your screen. For example, open a QR code in a
+browser, place the zone over it, and the Android app sees it as if you were holding a phone in front of
+it.</p>
+<h3>Start</h3>
+<ul>
+  <li><strong>Start broadcast</strong> (first item of the tray menu), or press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>C</kbd>
+    anywhere: starts with the remembered zone. By default this is a 300 × 300 zone, well suited to QR codes,
+    centered on the screen where the mouse is.</li>
+  <li><strong>Choose zone and start</strong>: pick another zone, which becomes the remembered one (shown with a
+    check mark):
+    <ul>
+      <li><em>Select zone…</em>: the screen darkens; drag a rectangle with the mouse. Press <kbd>Esc</kbd> or
+        right-click to cancel.</li>
+      <li><em>Last zone</em>: the exact position and size used last time.</li>
+      <li><em>300 × 300</em>, <em>640 × 480</em>, <em>800 × 600</em>, <em>1280 × 720</em>: a zone of that
+        size, centered on the screen where the mouse is.</li>
+    </ul>
+  </li>
+</ul>
+<h3>While broadcasting</h3>
+<ul>
+  <li>A <strong>red frame</strong> shows the zone. It is not part of the picture.</li>
+  <li><strong>Move the zone</strong> by dragging the red frame or its <em>drag to move</em> tab. The camera
+    follows immediately.</li>
+  <li>You can still click and type inside the zone: the frame doesn't block it.</li>
+  <li>The tray icon shows a <strong>red dot</strong>.</li>
+</ul>
+<h3>Stop</h3>
+<p><strong>Stop broadcast</strong> in the tray menu, or press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>X</kbd>
+anywhere. The camera goes back to the image (or the default image) within two seconds.</p>
+<div class="note">Zones are measured in screen pixels. On a display scaled to 125% or 150%, a 300 × 300 zone
+looks smaller than 300 "Windows" units: that's expected.</div>
+
+<h2 id="layout">7. Layouts</h2>
+<p>The <strong>Layout</strong> submenu controls how the picture is placed in the camera image:</p>
+<table>
+  <tr><th>Layout</th><th>Use it for</th></tr>
+  <tr><td><strong>Android emulator (portrait)</strong><br>(default)</td>
+      <td>The Android Emulator with a phone in portrait orientation. The emulator only keeps the left part of
+      webcam images when it rotates them for a portrait phone; this layout places the picture exactly in that
+      part, so the whole picture shows up in Android.</td></tr>
+  <tr><td><strong>Fit (desktop apps)</strong></td>
+      <td>Windows programs (the Camera app, Teams, browsers…) and the Android Emulator in landscape
+      orientation. The picture is centered in the camera image.</td></tr>
+</table>
+<p>If the picture looks squeezed to the left in a Windows program, switch to <em>Fit</em>. If it looks cut off
+or zoomed in the Android Emulator, switch to <em>Android emulator</em>.</p>
+
+<h2 id="tray">8. Tray menu reference</h2>
+<div class="menu">
+  <div class="grey">CameraEmulator – showing QRCode.png <em>(current status)</em></div>
+  <div class="sep"></div>
+  <div><strong>Start broadcast (300 x 300, centered)</strong> &nbsp; Ctrl+Alt+C &nbsp;<span class="grey">or <strong>Stop broadcast</strong> &nbsp; Ctrl+Alt+X</span></div>
+  <div>Choose zone and start ▸</div>
+  <div class="sub">Select zone… · Last zone · 300 × 300 · 640 × 480 · 800 × 600 · 1280 × 720</div>
+  <div class="sep"></div>
+  <div>Choose image…</div>
+  <div>Use default image</div>
+  <div>Layout ▸</div>
+  <div class="sub">Android emulator (portrait) · Fit (desktop apps)</div>
+  <div class="sep"></div>
+  <div>Keep the camera when this app is closed</div>
+  <div>Start with Windows</div>
+  <div class="sep"></div>
+  <div>Help</div>
+  <div>Open settings folder</div>
+  <div>Exit</div>
+</div>
+<table>
+  <tr><th>Item</th><th>Effect</th></tr>
+  <tr><td>Keep the camera when this app is closed</td>
+      <td>Checked: the camera is installed permanently for your Windows account. It stays available after you
+      exit the tray app and after a reboot, and it keeps showing the last image. Unchecked: the camera exists only
+      while the tray app is running.</td></tr>
+  <tr><td>Start with Windows</td><td>Starts the tray app when you sign in.</td></tr>
+  <tr><td>Open settings folder</td><td>Opens <code>C:\ProgramData\CameraEmulator</code> (current image, settings,
+      log files).</td></tr>
+  <tr><td>Exit</td><td>Closes the tray app. A broadcast in progress stops. If the camera is installed, it keeps
+      working with the image.</td></tr>
+</table>
+
+<h2 id="cli">9. Command line reference</h2>
+<p><code>CameraEmulator.exe</code> provides the same features for scripts and batch files. Run it without valid
+arguments to see a short usage summary.</p>
+<table>
+  <tr><th>Command</th><th>Effect</th></tr>
+  <tr><td><code>CameraEmulator.exe --install</code></td><td>Install the camera permanently (no administrator
+      rights needed).</td></tr>
+  <tr><td><code>CameraEmulator.exe --uninstall</code></td><td>Remove the installed camera.</td></tr>
+  <tr><td><code>CameraEmulator.exe image.png</code></td><td>Show this image. If the camera is not installed,
+      the program keeps it available until you press <kbd>Ctrl</kbd>+<kbd>C</kbd>.</td></tr>
+  <tr><td><code>CameraEmulator.exe --update image.png</code></td><td>Only change the image, then exit.</td></tr>
+  <tr><td><code>CameraEmulator.exe --update --default-image</code></td><td>Go back to the default image.</td></tr>
+  <tr><td><code>CameraEmulator.exe --layout android</code><br><code>CameraEmulator.exe --layout fit</code></td>
+      <td>Change the layout.</td></tr>
+  <tr><td><code>CameraEmulator.exe --screen</code></td><td>Drag a rectangle, then broadcast it.</td></tr>
+  <tr><td><code>CameraEmulator.exe --screen 300x300</code></td><td>Broadcast a 300 × 300 zone centered on the
+      screen where the mouse is.</td></tr>
+  <tr><td><code>CameraEmulator.exe --screen 100,200,800,600</code></td><td>Broadcast the zone at x = 100,
+      y = 200, 800 wide and 600 high.</td></tr>
+  <tr><td><code>--stop-key ctrl+shift+f12</code></td><td>Added to a <code>--screen</code> command: another
+      stop shortcut for this run.</td></tr>
+</table>
+<p>A screen broadcast started from the command line stops with <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>X</kbd> or
+<kbd>Ctrl</kbd>+<kbd>C</kbd> in the console. When it stops, the program prints the last position, which you can
+reuse with <code>--screen</code>.</p>
+
+<h2 id="settings">10. Settings file</h2>
+<p>Settings are stored in <code>C:\ProgramData\CameraEmulator\settings.ini</code>. Most are changed from the menu.
+The keyboard shortcuts can only be changed here, in the <code>[screen]</code> section:</p>
+<pre><code>[screen]
+startKey=ctrl+alt+c
+stopKey=ctrl+alt+x</code></pre>
+<p>A shortcut is a combination of <code>ctrl</code>, <code>alt</code>, <code>shift</code> and <code>win</code>,
+plus one letter, digit, or <code>F1</code>–<code>F24</code>, separated by <code>+</code>. At least one of
+<code>ctrl</code>, <code>alt</code>, <code>shift</code> or <code>win</code> is required. If <code>startKey</code>
+and <code>stopKey</code> are the same, that shortcut turns the broadcast on and off. Restart the tray app after
+editing the file.</p>
+
+<h2 id="troubleshooting">11. Troubleshooting</h2>
+<table>
+  <tr><th>Problem</th><th>Solution</th></tr>
+  <tr><td>CameraEmulator doesn't appear in the list of webcams.</td>
+      <td>Check that the tray app is running, or that <em>Keep the camera when this app is closed</em> is
+      checked. Check that <code>regsvr32</code> was run as administrator from the current folder (see
+      <a href="#install">Installation</a>). In <em>Settings → Privacy &amp; security → Camera</em>, allow
+      camera access, including for desktop apps.</td></tr>
+  <tr><td>A notification says the camera could not start.</td>
+      <td>The camera component is not registered, or was moved: run <code>regsvr32</code> again as
+      administrator.</td></tr>
+  <tr><td>The Android camera app crashes, or shows another camera.</td>
+      <td>The virtual device points to the wrong webcam. Run <code>emulator -webcam-list</code> again and fix
+      <code>hw.camera.back</code> (see <a href="#android">section 4</a>).</td></tr>
+  <tr><td>"Can't connect to the camera" right after the emulator starts.</td>
+      <td>The emulator resumed from a saved state (quick boot) with the camera app already open. Close the
+      camera app and open it again, or start the emulator with <code>-no-snapshot-load</code>.</td></tr>
+  <tr><td>The picture is cut off or zoomed in Android.</td>
+      <td>Use the <em>Android emulator (portrait)</em> layout. If the phone is in landscape orientation, use
+      <em>Fit</em>.</td></tr>
+  <tr><td>The picture is squeezed to the left in a Windows program.</td>
+      <td>Use the <em>Fit (desktop apps)</em> layout.</td></tr>
+  <tr><td>A shortcut doesn't work.</td>
+      <td>Another program already uses it; the tray app shows a notification at startup. Choose another
+      shortcut in <code>settings.ini</code>, or use the menu.</td></tr>
+  <tr><td>The tray icon is not visible.</td>
+      <td>Click the <strong>^</strong> arrow in the taskbar, then drag the icon onto the taskbar.</td></tr>
+  <tr><td>"CameraEmulator is already running".</td>
+      <td>Only one tray app can run at a time. Look for its icon behind the <strong>^</strong> arrow.</td></tr>
+</table>
+<p>For more details, the log files <code>tray.log</code> and <code>source.log</code> are in
+<code>C:\ProgramData\CameraEmulator</code> (<em>Open settings folder</em>).</p>
+
+<h2 id="uninstall">12. Uninstalling</h2>
+<ol>
+  <li>In the tray menu, uncheck <strong>Start with Windows</strong> and <strong>Keep the camera when this app is
+    closed</strong>, then choose <strong>Exit</strong>.</li>
+  <li>In a <strong>Command Prompt as administrator</strong>:
+    <pre><code>regsvr32 /u "C:\Tools\CameraEmulator\CameraEmulatorSource.dll"</code></pre></li>
+  <li>Delete the program folder and <code>C:\ProgramData\CameraEmulator</code>.</li>
+</ol>
+
+</main>
+</body>
+</html>

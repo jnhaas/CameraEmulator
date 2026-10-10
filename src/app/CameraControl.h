@@ -17,6 +17,8 @@ namespace CameraControl
     // Image and layout read by the media source.
     HRESULT PublishImage(const wchar_t* path); // also remembers the original file name
     std::wstring PublishedImageName();         // empty if no image was published
+    // Removes the published image: the camera shows the default image embedded in the source DLL.
+    HRESULT UseDefaultImage();
     HRESULT PublishLayout(const wchar_t* layout);
     bool AndroidLayout();
 
