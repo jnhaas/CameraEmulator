@@ -41,6 +41,12 @@ public:
     IFACEMETHODIMP_(NTSTATUS) KsMethod(PKSMETHOD method, ULONG methodLength, PVOID data, ULONG dataLength, ULONG* bytesReturned) override;
     IFACEMETHODIMP_(NTSTATUS) KsEvent(PKSEVENT event, ULONG eventLength, PVOID data, ULONG dataLength, ULONG* bytesReturned) override;
 
+    bool IsShutdown()
+    {
+        std::lock_guard lock(m_mutex);
+        return m_shutdown;
+    }
+
 private:
     std::mutex m_mutex;
     bool m_mfStarted = false;

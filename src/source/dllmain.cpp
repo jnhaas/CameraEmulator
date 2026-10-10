@@ -19,17 +19,32 @@ namespace
     }
 }
 
-// Viewable with DebugView (Capture Global Win32 enabled, since we run inside a service).
+// Goes to OutputDebugString (DebugView) and, best effort, to %ProgramData%\CameraEmulator\source.log.
 void Trace(const wchar_t* format, ...)
 {
+    SYSTEMTIME now;
+    GetLocalTime(&now);
     wchar_t message[512];
-    int prefix = swprintf_s(message, L"[CameraEmulator] ");
+    const int prefix = swprintf_s(message, L"[CameraEmulator] %02u:%02u:%02u.%03u pid %lu: ",
+        now.wHour, now.wMinute, now.wSecond, now.wMilliseconds, GetCurrentProcessId());
     va_list args;
     va_start(args, format);
-    vswprintf_s(message + prefix, ARRAYSIZE(message) - prefix - 1, format, args);
+    vswprintf_s(message + prefix, ARRAYSIZE(message) - prefix - 2, format, args);
     va_end(args);
-    wcscat_s(message, L"\n");
+    wcscat_s(message, L"\r\n");
     OutputDebugStringW(message);
+
+    static const std::wstring logPath = CameraEmulator::SharedFolder() + L"\\source.log";
+    HANDLE log = CreateFileW(logPath.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (log != INVALID_HANDLE_VALUE)
+    {
+        char utf8[1024];
+        const int length = WideCharToMultiByte(CP_UTF8, 0, message, -1, utf8, sizeof(utf8), nullptr, nullptr);
+        DWORD written = 0;
+        if (length > 1) WriteFile(log, utf8, static_cast<DWORD>(length - 1), &written, nullptr);
+        CloseHandle(log);
+    }
 }
 
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)

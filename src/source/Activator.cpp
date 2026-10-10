@@ -30,6 +30,13 @@ IFACEMETHODIMP Activator::ActivateObject(REFIID riid, void** object)
 {
     if (!object) return E_POINTER;
     *object = nullptr;
+    // Frame Server may shut the source down directly when its last client leaves, then
+    // activate again for the next client: never hand out a dead source.
+    if (m_source && m_source->IsShutdown())
+    {
+        Trace(L"Cached media source was shut down, creating a new one");
+        m_source.Reset();
+    }
     if (!m_source)
     {
         HRESULT hr = MakeAndInitialize<MediaSource>(&m_source, m_attributes.Get());

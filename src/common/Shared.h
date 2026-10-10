@@ -31,4 +31,21 @@ namespace CameraEmulator
     {
         return SharedFolder() + L"\\image.png";
     }
+
+    // INI file with live settings, re-read by the source along with the image.
+    inline std::wstring SharedSettingsPath()
+    {
+        return SharedFolder() + L"\\settings.ini";
+    }
+
+    constexpr wchar_t kSettingsSection[] = L"camera";
+    constexpr wchar_t kLayoutKey[] = L"layout";
+
+    // How the image is placed in the frame.
+    //   android: fit into the region the Android emulator keeps when it rotates webcam frames
+    //            for a portrait device (a left-anchored crop of H*H/W x H pixels), so the whole
+    //            image shows up in the emulated camera.
+    //   fit:     letterbox into the whole frame, for regular desktop apps.
+    constexpr wchar_t kLayoutAndroid[] = L"android";
+    constexpr wchar_t kLayoutFit[] = L"fit";
 }

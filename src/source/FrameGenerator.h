@@ -5,9 +5,9 @@
 #include <string>
 #include <vector>
 
-// Produces frames for one media type from the shared PNG. The image is letterboxed to the
-// output size and re-read whenever the file changes on disk. If no image is available, a
-// color-bar test pattern is shown instead.
+// Produces frames for one media type from the shared PNG. The image is letterboxed according
+// to the layout setting (see Shared.h) and re-read whenever the file or the settings change
+// on disk. If no image is available, a color-bar test pattern is shown instead.
 //
 // Not thread-safe: owned and used by a single worker thread (COM must be initialized on it).
 class FrameGenerator
@@ -28,6 +28,8 @@ private:
     UINT32 m_width;
     UINT32 m_height;
     std::wstring m_imagePath;
+    std::wstring m_settingsPath;
+    bool m_androidLayout = true;
     ComPtr<IWICImagingFactory> m_wic;
     std::vector<BYTE> m_frame;
 

@@ -1,7 +1,7 @@
 // Loads CameraEmulatorSource.dll directly (no registration, no Frame Server), pulls one RGB32
 // frame from the media source and writes it to a BMP.
 //
-//   SourceTest.exe <path\to\CameraEmulatorSource.dll> <output.bmp>
+//   SourceTest.exe <path\to\CameraEmulatorSource.dll> <output.bmp> [width height]   (default 1280 720)
 
 #include <windows.h>
 #include <mfapi.h>
@@ -70,12 +70,14 @@ static bool WriteBmp(const wchar_t* path, const BYTE* pixels, UINT32 width, UINT
 
 int wmain(int argc, wchar_t** argv)
 {
-    if (argc != 3)
+    if (argc != 3 && argc != 5)
     {
-        fwprintf(stderr, L"Usage: %s <CameraEmulatorSource.dll> <output.bmp>\n", argv[0]);
+        fwprintf(stderr, L"Usage: %s <CameraEmulatorSource.dll> <output.bmp> [width height]\n", argv[0]);
         return 2;
     }
 
+    const UINT32 kWidth = argc == 5 ? static_cast<UINT32>(_wtoi(argv[3])) : 1280;
+    const UINT32 kHeight = argc == 5 ? static_cast<UINT32>(_wtoi(argv[4])) : 720;
     CHECK(CoInitializeEx(nullptr, COINIT_MULTITHREADED));
     CHECK(MFStartup(MF_VERSION));
 
@@ -93,7 +95,7 @@ int wmain(int argc, wchar_t** argv)
     ComPtr<IMFMediaSource> source;
     CHECK(activate->ActivateObject(IID_PPV_ARGS(&source)));
 
-    // Select the RGB32 1280x720 media type so the frame can be written as a BMP directly.
+    // Select the RGB32 media type of the requested size so the frame can be written as a BMP directly.
     ComPtr<IMFPresentationDescriptor> pd;
     CHECK(source->CreatePresentationDescriptor(&pd));
     BOOL selected = FALSE;
@@ -114,7 +116,7 @@ int wmain(int argc, wchar_t** argv)
         type->GetGUID(MF_MT_SUBTYPE, &subtype);
         MFGetAttributeSize(type.Get(), MF_MT_FRAME_SIZE, &w, &h);
         wprintf(L"  [%lu] %s %ux%u\n", i, subtype == MFVideoFormat_NV12 ? L"NV12" : L"RGB32", w, h);
-        if (subtype == MFVideoFormat_RGB32 && w == 1280) rgbType = type;
+        if (subtype == MFVideoFormat_RGB32 && w == kWidth && h == kHeight) rgbType = type;
     }
     if (!rgbType) CHECK(MF_E_INVALIDMEDIATYPE);
     CHECK(handler->SetCurrentMediaType(rgbType.Get()));
@@ -157,8 +159,8 @@ int wmain(int argc, wchar_t** argv)
     BYTE* data = nullptr;
     DWORD length = 0;
     CHECK(buffer->Lock(&data, nullptr, &length));
-    wprintf(L"Sample size: %lu bytes (expected %u)\n", length, 1280u * 720u * 4u);
-    const bool written = length == 1280u * 720u * 4u && WriteBmp(argv[2], data, 1280, 720);
+    wprintf(L"Sample size: %lu bytes (expected %u)\n", length, kWidth * kHeight * 4u);
+    const bool written = length == kWidth * kHeight * 4u && WriteBmp(argv[2], data, kWidth, kHeight);
     buffer->Unlock();
     if (written) wprintf(L"Wrote %s\n", argv[2]);
 

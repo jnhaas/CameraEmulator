@@ -75,6 +75,7 @@ IFACEMETHODIMP MediaSource::Start(IMFPresentationDescriptor* descriptor, const G
     if (timeFormat && *timeFormat != GUID_NULL) return MF_E_UNSUPPORTED_TIME_FORMAT;
 
     std::lock_guard lock(m_mutex);
+    Trace(L"Source Start (shutdown=%d)", m_shutdown ? 1 : 0);
     if (m_shutdown) return MF_E_SHUTDOWN;
 
     // Cloned presentation descriptors share our stream descriptor, so the media type the
@@ -107,6 +108,7 @@ IFACEMETHODIMP MediaSource::Start(IMFPresentationDescriptor* descriptor, const G
 IFACEMETHODIMP MediaSource::Stop()
 {
     std::lock_guard lock(m_mutex);
+    Trace(L"Source Stop");
     if (m_shutdown) return MF_E_SHUTDOWN;
     if (m_streamAnnounced) RETURN_IF_FAILED(m_stream->Stop());
     return m_queue->QueueEventParamVar(MESourceStopped, GUID_NULL, S_OK, nullptr);

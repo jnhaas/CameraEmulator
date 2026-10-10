@@ -11,12 +11,22 @@ namespace
         UINT32 height;
     };
 
-    // Offered formats, preferred first. NV12 is what Frame Server handles best.
+    // Offered formats, preferred first. NV12 is what Frame Server handles best. The sizes cover
+    // everything the Android emulator requests, so it never has to rescale (rescaling to a
+    // different aspect ratio adds black bars).
     const Format kFormats[] = {
         {MFVideoFormat_NV12, 1280, 720},
+        {MFVideoFormat_NV12, 1280, 960},
         {MFVideoFormat_NV12, 640, 480},
+        {MFVideoFormat_NV12, 352, 288},
+        {MFVideoFormat_NV12, 320, 240},
+        {MFVideoFormat_NV12, 176, 144},
         {MFVideoFormat_RGB32, 1280, 720},
+        {MFVideoFormat_RGB32, 1280, 960},
         {MFVideoFormat_RGB32, 640, 480},
+        {MFVideoFormat_RGB32, 352, 288},
+        {MFVideoFormat_RGB32, 320, 240},
+        {MFVideoFormat_RGB32, 176, 144},
     };
 
     HRESULT CreateVideoType(const Format& format, IMFMediaType** type)

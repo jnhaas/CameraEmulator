@@ -35,3 +35,7 @@ add_executable(SourceTest tests/SourceTest.cpp)
 target_include_directories(SourceTest PRIVATE src/common)
 target_link_libraries(SourceTest PRIVATE mfplat mfuuid ole32 shell32)
 add_dependencies(SourceTest CameraEmulatorSource)
+
+# Reads the registered virtual camera like the Android emulator does (needs CameraEmulator.exe running).
+add_executable(ReaderTest tests/ReaderTest.cpp)
+target_link_libraries(ReaderTest PRIVATE mfplat mfuuid mfreadwrite mf ole32)
