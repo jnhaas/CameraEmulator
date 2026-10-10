@@ -2,13 +2,16 @@
 #include "ScreenShare.h"
 #include <algorithm>
 #include <cstdio>
+#include <shellscalingapi.h>
 
 using namespace CameraEmulator;
 
 namespace
 {
     constexpr LONG kMinRegionSize = 16;
-    constexpr LONG kBorderThickness = 3;
+    constexpr LONG kBorderThickness = 4; // DIPs
+    constexpr LONG kTabHeight = 22;      // DIPs
+    constexpr wchar_t kTabText[] = L"CameraEmulator - drag to move";
     constexpr LONG kFrameIntervalMs = 33;
 
     // Region selection overlay -------------------------------------------------------------
@@ -95,14 +98,6 @@ namespace
         }
         return DefWindowProcW(window, message, wParam, lParam);
     }
-
-    // Border -------------------------------------------------------------------------------
-
-    LRESULT CALLBACK BorderProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
-    {
-        if (message == WM_NCHITTEST) return HTTRANSPARENT;
-        return DefWindowProcW(window, message, wParam, lParam);
-    }
 }
 
 bool SelectScreenRegion(RECT& region)
@@ -141,21 +136,54 @@ bool SelectScreenRegion(RECT& region)
     return true;
 }
 
+RECT CenteredRegion(LONG width, LONG height)
+{
+    POINT cursor{};
+    GetCursorPos(&cursor);
+    MONITORINFO monitor{sizeof(monitor)};
+    GetMonitorInfoW(MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST), &monitor);
+    const RECT& work = monitor.rcWork;
+    const LONG left = work.left + (work.right - work.left - width) / 2;
+    const LONG top = work.top + (work.bottom - work.top - height) / 2;
+    return RECT{left, top, left + width, top + height};
+}
+
 // ScreenBroadcaster --------------------------------------------------------------------------
 
-bool ScreenBroadcaster::Start(const RECT& region)
+namespace
+{
+    ULONGLONG PackOrigin(POINT point)
+    {
+        return (static_cast<ULONGLONG>(static_cast<ULONG>(point.x)) << 32) | static_cast<ULONG>(point.y);
+    }
+
+    POINT UnpackOrigin(ULONGLONG packed)
+    {
+        return POINT{static_cast<LONG>(static_cast<ULONG>(packed >> 32)), static_cast<LONG>(static_cast<ULONG>(packed))};
+    }
+}
+
+bool ScreenBroadcaster::Start(RECT& region)
 {
     Stop();
-    m_region = region;
     // Larger regions than the shared buffer are clipped to its maximum size.
-    m_region.right = std::min(m_region.right, m_region.left + static_cast<LONG>(kScreenMaxWidth));
-    m_region.bottom = std::min(m_region.bottom, m_region.top + static_cast<LONG>(kScreenMaxHeight));
-    if (m_region.right - m_region.left < kMinRegionSize || m_region.bottom - m_region.top < kMinRegionSize) return false;
+    region.right = std::min(region.right, region.left + static_cast<LONG>(kScreenMaxWidth));
+    region.bottom = std::min(region.bottom, region.top + static_cast<LONG>(kScreenMaxHeight));
+    if (region.right - region.left < kMinRegionSize || region.bottom - region.top < kMinRegionSize) return false;
+
+    m_width = region.right - region.left;
+    m_height = region.bottom - region.top;
+    MoveTo(POINT{region.left, region.top});
 
     m_stopEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     if (!m_stopEvent) return false;
     m_thread = std::thread(&ScreenBroadcaster::Run, this);
     return true;
+}
+
+void ScreenBroadcaster::MoveTo(POINT topLeft)
+{
+    m_origin.store(PackOrigin(topLeft));
 }
 
 void ScreenBroadcaster::Stop()
@@ -171,8 +199,8 @@ void ScreenBroadcaster::Stop()
 
 void ScreenBroadcaster::Run()
 {
-    const LONG width = m_region.right - m_region.left;
-    const LONG height = m_region.bottom - m_region.top;
+    const LONG width = m_width;
+    const LONG height = m_height;
 
     HDC screen = GetDC(nullptr);
     HDC memory = CreateCompatibleDC(screen);
@@ -197,7 +225,8 @@ void ScreenBroadcaster::Run()
     {
         EnsureSection();
         if (!m_view) continue;
-        if (BitBlt(memory, 0, 0, width, height, screen, m_region.left, m_region.top, SRCCOPY))
+        const POINT origin = UnpackOrigin(m_origin.load());
+        if (BitBlt(memory, 0, 0, width, height, screen, origin.x, origin.y, SRCCOPY))
         {
             GdiFlush();
             Publish(pixels);
@@ -243,8 +272,8 @@ void ScreenBroadcaster::EnsureSection()
 void ScreenBroadcaster::Publish(const void* pixels)
 {
     auto* header = static_cast<ScreenHeader*>(m_view);
-    const UINT32 width = static_cast<UINT32>(m_region.right - m_region.left);
-    const UINT32 height = static_cast<UINT32>(m_region.bottom - m_region.top);
+    const UINT32 width = static_cast<UINT32>(m_width);
+    const UINT32 height = static_cast<UINT32>(m_height);
 
     // Seqlock: odd while writing.
     if ((InterlockedIncrement(&header->sequence) & 1) == 0) InterlockedIncrement(&header->sequence);
@@ -265,36 +294,71 @@ void ScreenBroadcaster::CloseSection()
     m_viewIsGlobal = false;
 }
 
-// RegionBorder -------------------------------------------------------------------------------
 
-void RegionBorder::Show(const RECT& region)
+// RegionBorder -------------------------------------------------------------------------------
+//
+// Window layout (client coordinates):
+//
+//   +--------------+
+//   |     tab      |                       <- m_tabHeight
+//   +--------------+------------------+
+//   |  frame (m_thickness wide)       |
+//   |   +-------------------------+   |
+//   |   |   broadcast region       |   |    <- hole: clicks go to the windows below
+//   |   +-------------------------+   |
+//   +---------------------------------+
+
+void RegionBorder::Show(const RECT& region, MoveCallback onMove)
 {
     Hide();
+    m_onMove = std::move(onMove);
+    m_regionSize = SIZE{region.right - region.left, region.bottom - region.top};
+
+    // Size the frame for the DPI of the monitor the region is on.
+    UINT dpiX = 96, dpiY = 96;
+    GetDpiForMonitor(MonitorFromRect(&region, MONITOR_DEFAULTTONEAREST), MDT_EFFECTIVE_DPI, &dpiX, &dpiY);
+    m_thickness = MulDiv(kBorderThickness, static_cast<int>(dpiY), 96);
+    m_tabHeight = MulDiv(kTabHeight, static_cast<int>(dpiY), 96);
+    m_font = CreateFontW(-MulDiv(9, static_cast<int>(dpiY), 72), 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+        OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+
+    HDC screen = GetDC(nullptr);
+    HGDIOBJ previousFont = SelectObject(screen, m_font);
+    SIZE text{};
+    GetTextExtentPoint32W(screen, kTabText, static_cast<int>(wcslen(kTabText)), &text);
+    SelectObject(screen, previousFont);
+    ReleaseDC(nullptr, screen);
+    const LONG width = m_regionSize.cx + 2 * m_thickness;
+    m_tabWidth = std::min(width, text.cx + m_tabHeight);
 
     static const wchar_t kClassName[] = L"CameraEmulatorBorder";
-    static HBRUSH brush = CreateSolidBrush(RGB(255, 64, 0));
     WNDCLASSEXW windowClass{sizeof(windowClass)};
-    windowClass.lpfnWndProc = BorderProc;
+    windowClass.lpfnWndProc = WindowProc;
     windowClass.hInstance = GetModuleHandleW(nullptr);
-    windowClass.hbrBackground = brush;
+    windowClass.hCursor = LoadCursorW(nullptr, IDC_SIZEALL);
     windowClass.lpszClassName = kClassName;
     RegisterClassExW(&windowClass);
 
-    const LONG width = region.right - region.left + 2 * kBorderThickness;
-    const LONG height = region.bottom - region.top + 2 * kBorderThickness;
-    m_window = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE,
-        kClassName, L"", WS_POPUP, region.left - kBorderThickness, region.top - kBorderThickness, width, height,
-        nullptr, nullptr, windowClass.hInstance, nullptr);
-    if (!m_window) return;
+    const LONG height = m_tabHeight + m_regionSize.cy + 2 * m_thickness;
+    m_window = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, kClassName, L"CameraEmulator zone",
+        WS_POPUP, region.left - m_thickness, region.top - m_thickness - m_tabHeight, width, height,
+        nullptr, nullptr, windowClass.hInstance, this);
+    if (!m_window)
+    {
+        fwprintf(stderr, L"Could not create the zone frame: error %lu\n", GetLastError());
+        return;
+    }
 
-    // Only the frame is visible; the inside stays a hole so the content shows through.
-    HRGN outer = CreateRectRgn(0, 0, width, height);
-    HRGN inner = CreateRectRgn(kBorderThickness, kBorderThickness, width - kBorderThickness, height - kBorderThickness);
-    CombineRgn(outer, outer, inner, RGN_DIFF);
+    // Only the tab and the frame are part of the window; the inside is a hole.
+    HRGN shape = CreateRectRgn(0, m_tabHeight, width, height);
+    HRGN tab = CreateRectRgn(0, 0, m_tabWidth, m_tabHeight + 1);
+    HRGN inner = CreateRectRgn(m_thickness, m_tabHeight + m_thickness, width - m_thickness, height - m_thickness);
+    CombineRgn(shape, shape, tab, RGN_OR);
+    CombineRgn(shape, shape, inner, RGN_DIFF);
+    DeleteObject(tab);
     DeleteObject(inner);
-    SetWindowRgn(m_window, outer, FALSE); // the window owns the region now
+    SetWindowRgn(m_window, shape, FALSE); // the window owns the region now
 
-    SetLayeredWindowAttributes(m_window, 0, 255, LWA_ALPHA);
     SetWindowDisplayAffinity(m_window, WDA_EXCLUDEFROMCAPTURE);
     ShowWindow(m_window, SW_SHOWNOACTIVATE);
 }
@@ -303,4 +367,99 @@ void RegionBorder::Hide()
 {
     if (m_window) DestroyWindow(m_window);
     m_window = nullptr;
+    if (m_font) DeleteObject(m_font);
+    m_font = nullptr;
+}
+
+RECT RegionBorder::RegionFromWindow(const RECT& window) const
+{
+    const LONG left = window.left + m_thickness;
+    const LONG top = window.top + m_tabHeight + m_thickness;
+    return RECT{left, top, left + m_regionSize.cx, top + m_regionSize.cy};
+}
+
+void RegionBorder::ClampToScreen(RECT& window) const
+{
+    // Keep the broadcast region on the virtual screen (the frame itself may stick out).
+    const RECT region = RegionFromWindow(window);
+    const LONG screenLeft = GetSystemMetrics(SM_XVIRTUALSCREEN);
+    const LONG screenTop = GetSystemMetrics(SM_YVIRTUALSCREEN);
+    const LONG screenRight = screenLeft + GetSystemMetrics(SM_CXVIRTUALSCREEN);
+    const LONG screenBottom = screenTop + GetSystemMetrics(SM_CYVIRTUALSCREEN);
+
+    LONG dx = 0, dy = 0;
+    if (region.right > screenRight) dx = screenRight - region.right;
+    if (region.left + dx < screenLeft) dx = screenLeft - region.left;
+    if (region.bottom > screenBottom) dy = screenBottom - region.bottom;
+    if (region.top + dy < screenTop) dy = screenTop - region.top;
+    OffsetRect(&window, dx, dy);
+}
+
+void RegionBorder::Paint()
+{
+    PAINTSTRUCT paint;
+    HDC dc = BeginPaint(m_window, &paint);
+    RECT client;
+    GetClientRect(m_window, &client);
+    HBRUSH brush = CreateSolidBrush(RGB(255, 64, 0));
+    FillRect(dc, &client, brush);
+    DeleteObject(brush);
+
+    RECT tab{0, 0, m_tabWidth, m_tabHeight};
+    HGDIOBJ previousFont = SelectObject(dc, m_font);
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, RGB(255, 255, 255));
+    DrawTextW(dc, kTabText, -1, &tab, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+    SelectObject(dc, previousFont);
+    EndPaint(m_window, &paint);
+}
+
+LRESULT CALLBACK RegionBorder::WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    if (message == WM_NCCREATE)
+    {
+        SetWindowLongPtrW(window, GWLP_USERDATA,
+            reinterpret_cast<LONG_PTR>(reinterpret_cast<CREATESTRUCTW*>(lParam)->lpCreateParams));
+    }
+    auto* self = reinterpret_cast<RegionBorder*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    if (!self) return DefWindowProcW(window, message, wParam, lParam);
+
+    switch (message)
+    {
+    case WM_NCHITTEST:
+        // The whole visible window (tab and frame) acts as a title bar: dragging it moves it.
+        return HTCAPTION;
+    case WM_SETCURSOR:
+        SetCursor(LoadCursorW(nullptr, IDC_SIZEALL));
+        return TRUE;
+    case WM_WINDOWPOSCHANGING:
+    {
+        // Applies to drags as well as programmatic moves.
+        auto* position = reinterpret_cast<WINDOWPOS*>(lParam);
+        if (!(position->flags & SWP_NOMOVE))
+        {
+            RECT bounds;
+            GetWindowRect(window, &bounds);
+            OffsetRect(&bounds, position->x - bounds.left, position->y - bounds.top);
+            self->ClampToScreen(bounds);
+            position->x = bounds.left;
+            position->y = bounds.top;
+        }
+        return 0;
+    }
+    case WM_WINDOWPOSCHANGED:
+    {
+        RECT bounds;
+        GetWindowRect(window, &bounds);
+        if (self->m_onMove) self->m_onMove(self->RegionFromWindow(bounds));
+        return 0;
+    }
+    case WM_PAINT:
+        self->Paint();
+        return 0;
+    case WM_NCDESTROY:
+        SetWindowLongPtrW(window, GWLP_USERDATA, 0);
+        break;
+    }
+    return DefWindowProcW(window, message, wParam, lParam);
 }

@@ -1,10 +1,11 @@
 // CameraEmulator control app.
 //
-//   CameraEmulator.exe [--layout android|fit] [--screen [x,y,w,h]] [image.png]
+//   CameraEmulator.exe [--layout android|fit] [--screen [x,y,w,h | wxh]] [image.png]
 //       Apply the settings (optional) and expose the virtual camera until Ctrl+C is pressed.
-//       --screen broadcasts a zone of the screen instead of the image: give it in physical
-//       pixels, or omit it to drag a rectangle with the mouse.
-//   CameraEmulator.exe --update [--layout android|fit] [--screen [x,y,w,h]] [image.png]
+//       --screen broadcasts a zone of the screen instead of the image: give it as x,y,w,h or wxh
+//       (centered) in physical pixels, or omit it to drag a rectangle. The zone can then be moved
+//       by dragging its red frame.
+//   CameraEmulator.exe --update [--layout android|fit] [--screen [x,y,w,h | wxh]] [image.png]
 //       Change the settings of a running camera and exit. With --screen, keep broadcasting the
 //       zone to that camera until Ctrl+C.
 //   CameraEmulator.exe --set-image image.png
@@ -96,33 +97,54 @@ namespace
         }
     }
 
+    // Accepts "x,y,width,height", or "widthxheight" for a region centered on the monitor under
+    // the mouse.
     bool ParseRegion(const wchar_t* text, RECT& region)
     {
         int x = 0, y = 0, width = 0, height = 0;
         wchar_t extra = 0;
-        if (swscanf_s(text, L"%d,%d,%d,%d%c", &x, &y, &width, &height, &extra, 1) != 4 || width <= 0 || height <= 0) return false;
-        region = RECT{x, y, x + width, y + height};
-        return true;
+        if (swscanf_s(text, L"%d,%d,%d,%d%c", &x, &y, &width, &height, &extra, 1) == 4 && width > 0 && height > 0)
+        {
+            region = RECT{x, y, x + width, y + height};
+            return true;
+        }
+        if (swscanf_s(text, L"%dx%d%c", &width, &height, &extra, 1) == 2 && width > 0 && height > 0)
+        {
+            region = CenteredRegion(width, height);
+            return true;
+        }
+        return false;
     }
 
-    // Broadcasts the screen region, if any, until Ctrl+C.
+    void PrintRegion(const wchar_t* prefix, const RECT& region)
+    {
+        wprintf(L"%s %ld,%ld,%ld,%ld\n", prefix, region.left, region.top, region.right - region.left, region.bottom - region.top);
+    }
+
+    // Broadcasts the screen region, if any, until Ctrl+C. The region can be moved by dragging
+    // its frame.
     void RunUntilStopped(const RECT* screenRegion)
     {
         ScreenBroadcaster broadcaster;
         RegionBorder border;
+        RECT region{};
         if (screenRegion)
         {
-            if (!broadcaster.Start(*screenRegion))
+            region = *screenRegion;
+            if (!broadcaster.Start(region))
             {
                 fwprintf(stderr, L"Invalid screen region.\n");
                 return;
             }
-            border.Show(*screenRegion);
-            wprintf(L"Screen region %ld,%ld,%ld,%ld will be broadcast while a client uses the camera.\n",
-                screenRegion->left, screenRegion->top, screenRegion->right - screenRegion->left,
-                screenRegion->bottom - screenRegion->top);
+            border.Show(region, [&](const RECT& moved) {
+                region = moved;
+                broadcaster.MoveTo(POINT{moved.left, moved.top});
+            });
+            PrintRegion(L"Broadcasting screen region", region);
+            wprintf(L"Drag the red frame to move it.\n");
         }
         WaitForStop();
+        if (screenRegion) PrintRegion(L"Last region (reuse with --screen):", region);
     }
 
     int RunCamera(const RECT* screenRegion)
@@ -164,6 +186,8 @@ int wmain(int argc, wchar_t** argv)
 {
     // Screen coordinates and captures in physical pixels on every monitor.
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    // Unbuffered output, so status lines show up immediately when redirected to a file or pipe.
+    setvbuf(stdout, nullptr, _IONBF, 0);
 
     bool updateOnly = false;
     const wchar_t* image = nullptr;
@@ -210,15 +234,16 @@ int wmain(int argc, wchar_t** argv)
     {
         fwprintf(stderr,
             L"Usage:\n"
-            L"  %s [--layout android|fit] [--screen [x,y,w,h]] [image.png]  run the virtual camera\n"
-            L"  %s --update [--layout android|fit] [--screen [x,y,w,h]] [image.png]\n"
+            L"  %s [--layout android|fit] [--screen [x,y,w,h | wxh]] [image.png]  run the virtual camera\n"
+            L"  %s --update [--layout android|fit] [--screen [x,y,w,h | wxh]] [image.png]\n"
             L"      change a running camera; with --screen, broadcast to it until Ctrl+C\n"
             L"\n"
             L"Layouts: android (default) compensates the Android emulator's crop of webcam frames\n"
             L"         for portrait devices; fit letterboxes the image for regular apps.\n"
-            L"--screen broadcasts a zone of the screen (physical pixels); without coordinates, drag\n"
-            L"         a rectangle with the mouse (Esc cancels). The image is shown again if the\n"
-            L"         broadcast stops.\n",
+            L"--screen broadcasts a zone of the screen, in physical pixels: x,y,w,h, or wxh to center\n"
+            L"         it on the monitor under the mouse. Without a value, drag a rectangle with the\n"
+            L"         mouse (Esc cancels). Drag the red frame to move the zone while it runs. The\n"
+            L"         image is shown again when the broadcast stops.\n",
             argv[0], argv[0]);
         return 2;
     }

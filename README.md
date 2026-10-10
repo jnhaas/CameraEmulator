@@ -72,13 +72,19 @@ build\Release\CameraEmulator.exe --update --layout fit
 
 ```bat
 build\Release\CameraEmulator.exe --screen
+build\Release\CameraEmulator.exe --screen 800x600
 build\Release\CameraEmulator.exe --screen 100,200,800,600
 ```
 
-Without coordinates, the screen dims and you drag a rectangle around the zone (Esc or right click
-cancels). Coordinates are `x,y,width,height` in physical pixels, relative to the primary monitor's
-top-left corner. Up to 3840×2160 pixels are supported. A red frame, which isn't captured, marks
-the zone while it is broadcast. The zone is fitted into the camera frame using the current layout.
+- **No value:** the screen dims and you drag a rectangle around the zone (Esc or right click cancels).
+- **`WIDTHxHEIGHT`:** a zone of that size, centered on the monitor under the mouse.
+- **`x,y,width,height`:** an exact zone, relative to the primary monitor's top-left corner.
+
+Sizes are in physical pixels, up to 3840×2160. A red frame with a "drag to move" tab marks the
+zone. The frame isn't captured, and the inside of the zone stays clickable. **Drag the frame or
+the tab to move the zone**; the capture follows on the next frame, and the zone stays on screen.
+When you stop with Ctrl+C, the app prints the last position so you can reuse it with `--screen`.
+The zone is fitted into the camera frame using the current layout.
 
 To broadcast to a camera that is already running, without restarting it:
 
