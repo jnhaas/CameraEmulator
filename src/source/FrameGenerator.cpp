@@ -38,27 +38,63 @@ FrameGenerator::FrameGenerator(const GUID& subtype, UINT32 width, UINT32 height)
 
 const std::vector<BYTE>& FrameGenerator::CurrentFrame()
 {
-    ReloadIfChanged();
+    const ULONGLONG now = GetTickCount64();
+    const bool periodicCheck = m_frame.empty() || now >= m_nextCheckTick;
+    bool layoutChanged = false;
+    if (periodicCheck)
+    {
+        m_nextCheckTick = now + kImageCheckIntervalMs;
+        layoutChanged = RefreshLayout();
+    }
+
+    // A live screen capture takes precedence over the image.
+    bool newScreenFrame = m_screen.ReadIfNew(m_screenPixels, m_screenWidth, m_screenHeight);
+    if (!newScreenFrame && m_showingScreen && layoutChanged && m_screen.IsLive()) newScreenFrame = true;
+    if (newScreenFrame)
+    {
+        std::vector<BYTE> bgra;
+        const HRESULT hr = ComposeScreen(bgra);
+        if (SUCCEEDED(hr))
+        {
+            if (!m_showingScreen) Trace(L"Showing screen capture (%ux%u)", m_screenWidth, m_screenHeight);
+            Encode(bgra);
+            m_showingScreen = true;
+            m_showingImage = false;
+            return m_frame;
+        }
+        Trace(L"Failed to compose screen frame: 0x%08X", hr);
+    }
+    if (m_showingScreen && m_screen.IsLive()) return m_frame; // no new capture yet: repeat the last one
+
+    bool force = layoutChanged;
+    if (m_showingScreen)
+    {
+        Trace(L"Screen capture stopped, back to the image");
+        m_showingScreen = false;
+        force = true;
+    }
+    if (periodicCheck || force) ReloadImageIfChanged(force);
     return m_frame;
 }
 
-void FrameGenerator::ReloadIfChanged()
+bool FrameGenerator::RefreshLayout()
 {
-    const ULONGLONG now = GetTickCount64();
-    if (!m_frame.empty() && now < m_nextCheckTick) return;
-    m_nextCheckTick = now + kImageCheckIntervalMs;
-
     wchar_t layout[32] = {};
     GetPrivateProfileStringW(CameraEmulator::kSettingsSection, CameraEmulator::kLayoutKey, CameraEmulator::kLayoutAndroid,
         layout, ARRAYSIZE(layout), m_settingsPath.c_str());
     const bool androidLayout = _wcsicmp(layout, CameraEmulator::kLayoutFit) != 0;
-    const bool layoutChanged = androidLayout != m_androidLayout;
+    const bool changed = androidLayout != m_androidLayout;
     m_androidLayout = androidLayout;
+    if (changed) Trace(L"Layout changed to %s", layout);
+    return changed;
+}
 
+void FrameGenerator::ReloadImageIfChanged(bool force)
+{
     WIN32_FILE_ATTRIBUTE_DATA info{};
     if (!GetFileAttributesExW(m_imagePath.c_str(), GetFileExInfoStandard, &info))
     {
-        if (m_showingImage || m_frame.empty())
+        if (force || m_showingImage || m_frame.empty())
         {
             std::vector<BYTE> bgra;
             DrawTestPattern(bgra);
@@ -69,7 +105,7 @@ void FrameGenerator::ReloadIfChanged()
     }
 
     const ULONGLONG size = (static_cast<ULONGLONG>(info.nFileSizeHigh) << 32) | info.nFileSizeLow;
-    if (m_showingImage && !layoutChanged && size == m_imageSize && CompareFileTime(&info.ftLastWriteTime, &m_imageWriteTime) == 0) return;
+    if (!force && m_showingImage && size == m_imageSize && CompareFileTime(&info.ftLastWriteTime, &m_imageWriteTime) == 0) return;
 
     std::vector<BYTE> bgra;
     HRESULT hr = DecodeImage(bgra);
@@ -79,13 +115,13 @@ void FrameGenerator::ReloadIfChanged()
         m_showingImage = true;
         m_imageSize = size;
         m_imageWriteTime = info.ftLastWriteTime;
-        Trace(L"Loaded %s (%ux%u, layout %s)", m_imagePath.c_str(), m_width, m_height, layout);
+        Trace(L"Loaded %s (%ux%u, %s layout)", m_imagePath.c_str(), m_width, m_height, m_androidLayout ? L"android" : L"fit");
     }
     else
     {
         // Keep the previous frame and retry on the next check (the file may be mid-write).
         Trace(L"Failed to decode %s: 0x%08X", m_imagePath.c_str(), hr);
-        if (m_frame.empty())
+        if (m_frame.empty() || force)
         {
             DrawTestPattern(bgra);
             Encode(bgra);
@@ -110,30 +146,45 @@ HRESULT FrameGenerator::DecodeImage(std::vector<BYTE>& bgra)
     ComPtr<IWICBitmapFrameDecode> source;
     RETURN_IF_FAILED(decoder->GetFrame(0, &source));
 
-    UINT imageWidth = 0, imageHeight = 0;
-    RETURN_IF_FAILED(source->GetSize(&imageWidth, &imageHeight));
-    if (imageWidth == 0 || imageHeight == 0) return E_INVALIDARG;
-
     // Premultiplied BGRA: dropping alpha afterwards composites transparent areas onto black.
     ComPtr<IWICFormatConverter> converter;
     RETURN_IF_FAILED(m_wic->CreateFormatConverter(&converter));
     RETURN_IF_FAILED(converter->Initialize(source.Get(), GUID_WICPixelFormat32bppPBGRA,
         WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom));
 
-    // Region of the frame the image is fitted into. For a portrait device the Android emulator
+    return Compose(converter.Get(), WICBitmapInterpolationModeHighQualityCubic, bgra);
+}
+
+HRESULT FrameGenerator::ComposeScreen(std::vector<BYTE>& bgra)
+{
+    if (!m_wic) return E_NOT_VALID_STATE;
+    ComPtr<IWICBitmap> bitmap;
+    RETURN_IF_FAILED(m_wic->CreateBitmapFromMemory(m_screenWidth, m_screenHeight, GUID_WICPixelFormat32bppBGR,
+        m_screenWidth * 4, static_cast<UINT>(m_screenPixels.size()), m_screenPixels.data(), &bitmap));
+    // Fant is fast and sharp enough for downscaling screen content at frame rate.
+    return Compose(bitmap.Get(), WICBitmapInterpolationModeFant, bgra);
+}
+
+HRESULT FrameGenerator::Compose(IWICBitmapSource* source, WICBitmapInterpolationMode interpolation, std::vector<BYTE>& bgra)
+{
+    UINT sourceWidth = 0, sourceHeight = 0;
+    RETURN_IF_FAILED(source->GetSize(&sourceWidth, &sourceHeight));
+    if (sourceWidth == 0 || sourceHeight == 0) return E_INVALIDARG;
+
+    // Region of the frame the picture is fitted into. For a portrait device the Android emulator
     // rotates webcam frames by cropping the left H*H/W x H pixels and scaling them up to the
     // whole picture, discarding the rest (camera-format-converters.c, convert_frame_fast).
     const UINT regionWidth = m_androidLayout ? std::min(m_width, m_height * m_height / m_width) : m_width;
     const UINT regionHeight = m_height;
 
     // Fit inside the region, preserving aspect ratio.
-    const double scale = std::min(static_cast<double>(regionWidth) / imageWidth, static_cast<double>(regionHeight) / imageHeight);
-    const UINT scaledWidth = std::clamp(static_cast<UINT>(imageWidth * scale + 0.5), 1u, regionWidth);
-    const UINT scaledHeight = std::clamp(static_cast<UINT>(imageHeight * scale + 0.5), 1u, regionHeight);
+    const double scale = std::min(static_cast<double>(regionWidth) / sourceWidth, static_cast<double>(regionHeight) / sourceHeight);
+    const UINT scaledWidth = std::clamp(static_cast<UINT>(sourceWidth * scale + 0.5), 1u, regionWidth);
+    const UINT scaledHeight = std::clamp(static_cast<UINT>(sourceHeight * scale + 0.5), 1u, regionHeight);
 
     ComPtr<IWICBitmapScaler> scaler;
     RETURN_IF_FAILED(m_wic->CreateBitmapScaler(&scaler));
-    RETURN_IF_FAILED(scaler->Initialize(converter.Get(), scaledWidth, scaledHeight, WICBitmapInterpolationModeHighQualityCubic));
+    RETURN_IF_FAILED(scaler->Initialize(source, scaledWidth, scaledHeight, interpolation));
 
     const UINT stride = m_width * 4;
     bgra.assign(static_cast<size_t>(stride) * m_height, 0);

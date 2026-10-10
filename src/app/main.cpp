@@ -1,9 +1,12 @@
 // CameraEmulator control app.
 //
-//   CameraEmulator.exe [--layout android|fit] [image.png]
+//   CameraEmulator.exe [--layout android|fit] [--screen [x,y,w,h]] [image.png]
 //       Apply the settings (optional) and expose the virtual camera until Ctrl+C is pressed.
-//   CameraEmulator.exe --update [--layout android|fit] [image.png]
-//       Change the settings of a running camera and exit.
+//       --screen broadcasts a zone of the screen instead of the image: give it in physical
+//       pixels, or omit it to drag a rectangle with the mouse.
+//   CameraEmulator.exe --update [--layout android|fit] [--screen [x,y,w,h]] [image.png]
+//       Change the settings of a running camera and exit. With --screen, keep broadcasting the
+//       zone to that camera until Ctrl+C.
 //   CameraEmulator.exe --set-image image.png
 //       Same as --update image.png.
 
@@ -14,6 +17,7 @@
 #include <cstdio>
 #include <string>
 
+#include "ScreenCapture.h"
 #include "Shared.h"
 
 using Microsoft::WRL::ComPtr;
@@ -34,8 +38,6 @@ namespace
         return 1;
     }
 
-    // Copies the image into the folder read by the media source. The replace is atomic so the
-    // source never decodes a half-written file.
     HRESULT EnsureSharedFolder()
     {
         const std::wstring folder = CameraEmulator::SharedFolder();
@@ -59,6 +61,8 @@ namespace
         return S_OK;
     }
 
+    // Copies the image into the folder read by the media source. The replace is atomic so the
+    // source never decodes a half-written file.
     HRESULT PublishImage(const wchar_t* source)
     {
         HRESULT hr = EnsureSharedFolder();
@@ -78,7 +82,50 @@ namespace
         return S_OK;
     }
 
-    int RunCamera()
+    // Waits for Ctrl+C while pumping messages for the windows of this thread (region border).
+    void WaitForStop()
+    {
+        while (MsgWaitForMultipleObjects(1, &g_stopEvent, FALSE, INFINITE, QS_ALLINPUT) == WAIT_OBJECT_0 + 1)
+        {
+            MSG message;
+            while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))
+            {
+                TranslateMessage(&message);
+                DispatchMessageW(&message);
+            }
+        }
+    }
+
+    bool ParseRegion(const wchar_t* text, RECT& region)
+    {
+        int x = 0, y = 0, width = 0, height = 0;
+        wchar_t extra = 0;
+        if (swscanf_s(text, L"%d,%d,%d,%d%c", &x, &y, &width, &height, &extra, 1) != 4 || width <= 0 || height <= 0) return false;
+        region = RECT{x, y, x + width, y + height};
+        return true;
+    }
+
+    // Broadcasts the screen region, if any, until Ctrl+C.
+    void RunUntilStopped(const RECT* screenRegion)
+    {
+        ScreenBroadcaster broadcaster;
+        RegionBorder border;
+        if (screenRegion)
+        {
+            if (!broadcaster.Start(*screenRegion))
+            {
+                fwprintf(stderr, L"Invalid screen region.\n");
+                return;
+            }
+            border.Show(*screenRegion);
+            wprintf(L"Screen region %ld,%ld,%ld,%ld will be broadcast while a client uses the camera.\n",
+                screenRegion->left, screenRegion->top, screenRegion->right - screenRegion->left,
+                screenRegion->bottom - screenRegion->top);
+        }
+        WaitForStop();
+    }
+
+    int RunCamera(const RECT* screenRegion)
     {
         BOOL supported = FALSE;
         if (FAILED(MFIsVirtualCameraTypeSupported(MFVirtualCameraType_SoftwareCameraSource, &supported)) || !supported)
@@ -103,7 +150,7 @@ namespace
         }
 
         wprintf(L"Virtual camera \"%s\" is running. Press Ctrl+C to stop.\n", CAMERAEMULATOR_FRIENDLY_NAME);
-        WaitForSingleObject(g_stopEvent, INFINITE);
+        RunUntilStopped(screenRegion);
 
         wprintf(L"Removing virtual camera...\n");
         hr = camera->Remove();
@@ -115,15 +162,30 @@ namespace
 
 int wmain(int argc, wchar_t** argv)
 {
+    // Screen coordinates and captures in physical pixels on every monitor.
+    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+
     bool updateOnly = false;
     const wchar_t* image = nullptr;
     const wchar_t* layout = nullptr;
+    bool screen = false;
+    bool screenRegionGiven = false;
+    RECT screenRegion{};
     bool validArgs = true;
     for (int i = 1; i < argc && validArgs; ++i)
     {
         if (_wcsicmp(argv[i], L"--update") == 0)
         {
             updateOnly = true;
+        }
+        else if (_wcsicmp(argv[i], L"--screen") == 0 && !screen)
+        {
+            screen = true;
+            if (i + 1 < argc && ParseRegion(argv[i + 1], screenRegion))
+            {
+                screenRegionGiven = true;
+                ++i;
+            }
         }
         else if (_wcsicmp(argv[i], L"--set-image") == 0 && i + 1 < argc && !image)
         {
@@ -148,13 +210,27 @@ int wmain(int argc, wchar_t** argv)
     {
         fwprintf(stderr,
             L"Usage:\n"
-            L"  %s [--layout android|fit] [image.png]          run the virtual camera\n"
-            L"  %s --update [--layout android|fit] [image.png] change a running camera\n"
+            L"  %s [--layout android|fit] [--screen [x,y,w,h]] [image.png]  run the virtual camera\n"
+            L"  %s --update [--layout android|fit] [--screen [x,y,w,h]] [image.png]\n"
+            L"      change a running camera; with --screen, broadcast to it until Ctrl+C\n"
             L"\n"
             L"Layouts: android (default) compensates the Android emulator's crop of webcam frames\n"
-            L"         for portrait devices; fit letterboxes the image for regular apps.\n",
+            L"         for portrait devices; fit letterboxes the image for regular apps.\n"
+            L"--screen broadcasts a zone of the screen (physical pixels); without coordinates, drag\n"
+            L"         a rectangle with the mouse (Esc cancels). The image is shown again if the\n"
+            L"         broadcast stops.\n",
             argv[0], argv[0]);
         return 2;
+    }
+
+    if (screen && !screenRegionGiven)
+    {
+        wprintf(L"Drag a rectangle around the zone to broadcast (Esc to cancel)...\n");
+        if (!SelectScreenRegion(screenRegion))
+        {
+            wprintf(L"Cancelled.\n");
+            return 1;
+        }
     }
 
     if (layout)
@@ -171,17 +247,25 @@ int wmain(int argc, wchar_t** argv)
     {
         wprintf(L"No image published yet; the camera will show color bars.\n");
     }
-    if (updateOnly) return 0;
+    if (updateOnly && !screen) return 0;
+
+    g_stopEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    SetConsoleCtrlHandler(OnConsoleCtrl, TRUE);
+
+    if (updateOnly)
+    {
+        // Feed a camera that is already running (in another CameraEmulator.exe).
+        wprintf(L"Broadcasting to the running camera. Press Ctrl+C to stop.\n");
+        RunUntilStopped(&screenRegion);
+        return 0;
+    }
 
     HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (FAILED(hr)) return Fail(L"CoInitializeEx", hr);
     hr = MFStartup(MF_VERSION);
     if (FAILED(hr)) return Fail(L"MFStartup", hr);
 
-    g_stopEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    SetConsoleCtrlHandler(OnConsoleCtrl, TRUE);
-
-    const int result = RunCamera();
+    const int result = RunCamera(screen ? &screenRegion : nullptr);
 
     MFShutdown();
     CoUninitialize();

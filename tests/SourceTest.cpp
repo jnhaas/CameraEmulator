@@ -1,7 +1,7 @@
 // Loads CameraEmulatorSource.dll directly (no registration, no Frame Server), pulls one RGB32
 // frame from the media source and writes it to a BMP.
 //
-//   SourceTest.exe <path\to\CameraEmulatorSource.dll> <output.bmp> [width height]   (default 1280 720)
+//   SourceTest.exe <path\to\CameraEmulatorSource.dll> <output.bmp> [width height [seconds]]   (default 1280 720, 10 frames)
 
 #include <windows.h>
 #include <mfapi.h>
@@ -9,6 +9,7 @@
 #include <mferror.h>
 #include <wrl/client.h>
 #include <cstdio>
+#include <algorithm>
 #include <vector>
 
 #include "Shared.h"
@@ -70,14 +71,14 @@ static bool WriteBmp(const wchar_t* path, const BYTE* pixels, UINT32 width, UINT
 
 int wmain(int argc, wchar_t** argv)
 {
-    if (argc != 3 && argc != 5)
+    if (argc != 3 && argc != 5 && argc != 6)
     {
         fwprintf(stderr, L"Usage: %s <CameraEmulatorSource.dll> <output.bmp> [width height]\n", argv[0]);
         return 2;
     }
 
-    const UINT32 kWidth = argc == 5 ? static_cast<UINT32>(_wtoi(argv[3])) : 1280;
-    const UINT32 kHeight = argc == 5 ? static_cast<UINT32>(_wtoi(argv[4])) : 720;
+    const UINT32 kWidth = argc >= 5 ? static_cast<UINT32>(_wtoi(argv[3])) : 1280;
+    const UINT32 kHeight = argc >= 5 ? static_cast<UINT32>(_wtoi(argv[4])) : 720;
     CHECK(CoInitializeEx(nullptr, COINIT_MULTITHREADED));
     CHECK(MFStartup(MF_VERSION));
 
@@ -139,7 +140,8 @@ int wmain(int argc, wchar_t** argv)
     CHECK(WaitForEvent(stream.Get(), MEStreamStarted, &event));
 
     // Pull a few samples to exercise pacing; keep the last one.
-    const int sampleCount = 10;
+    // Optional duration in seconds, e.g. to give CameraEmulator.exe --update --screen time to attach.
+    const int sampleCount = argc == 6 ? std::max(1, _wtoi(argv[5]) * 30) : 10;
     const LONGLONG before = MFGetSystemTime();
     ComPtr<IMFSample> sample;
     for (int i = 0; i < sampleCount; ++i)

@@ -9,7 +9,7 @@ virtual camera API (`MFCreateVirtualCamera`). It is meant to feed the Android SD
 | Component | Role |
 |---|---|
 | `CameraEmulatorSource.dll` | COM media source. Windows' **Frame Server** service loads it and pulls frames from it. |
-| `CameraEmulator.exe` | Publishes the image and registers the virtual camera for as long as it runs. |
+| `CameraEmulator.exe` | Publishes the image (or captures a zone of the screen) and registers the virtual camera for as long as it runs. |
 | `SourceTest.exe` | Test harness: loads the DLL directly and dumps one frame to a BMP. |
 | `ReaderTest.exe` | Test harness: reads the running virtual camera at a given size, the way the Android emulator does, and dumps a BMP. |
 
@@ -68,6 +68,30 @@ build\Release\CameraEmulator.exe --update path\to\other.png
 build\Release\CameraEmulator.exe --update --layout fit
 ```
 
+### Broadcasting a zone of the screen
+
+```bat
+build\Release\CameraEmulator.exe --screen
+build\Release\CameraEmulator.exe --screen 100,200,800,600
+```
+
+Without coordinates, the screen dims and you drag a rectangle around the zone (Esc or right click
+cancels). Coordinates are `x,y,width,height` in physical pixels, relative to the primary monitor's
+top-left corner. Up to 3840×2160 pixels are supported. A red frame, which isn't captured, marks
+the zone while it is broadcast. The zone is fitted into the camera frame using the current layout.
+
+To broadcast to a camera that is already running, without restarting it:
+
+```bat
+build\Release\CameraEmulator.exe --update --screen
+```
+
+The capture runs at 30 fps in `CameraEmulator.exe`, because the Frame Server service runs in
+session 0 and can't see your desktop. Frames are passed to the source through the shared memory
+section `Global\CameraEmulatorScreen` (see `src/common/ScreenShare.h`). The source creates that
+section when a client starts streaming, and the app attaches to it within half a second. When the
+broadcast stops (Ctrl+C), the camera goes back to the image within 2 seconds.
+
 ### Layouts
 
 The layout is saved in `C:\ProgramData\CameraEmulator\settings.ini` and applied within a second.
@@ -104,4 +128,7 @@ Use the `webcamN` name that `-webcam-list` reports for CameraEmulator. You can a
   Sysinternals DebugView with *Capture Global Win32* enabled, run as administrator. Lines from the
   `CameraEmulator.exe` process also go to `C:\ProgramData\CameraEmulator\source.log`.
 - **Test without Frame Server:**
-  `build\Release\SourceTest.exe build\Release\CameraEmulatorSource.dll frame.bmp [width height]`
+  `build\Release\SourceTest.exe build\Release\CameraEmulatorSource.dll frame.bmp [width height [seconds]]`.
+  Outside the service, the source falls back to a `Local\` section, so you can also test the
+  screen broadcast. Start `CameraEmulator.exe --update --screen x,y,w,h`, then run `SourceTest`
+  with a duration of a few seconds.
