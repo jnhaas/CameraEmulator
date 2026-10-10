@@ -27,7 +27,7 @@ target_include_directories(CameraEmulatorSource PRIVATE src/common)
 target_link_libraries(CameraEmulatorSource PRIVATE mfplat mfuuid windowscodecs ole32 shell32 advapi32 runtimeobject)
 
 # Control app: publishes the PNG and registers the virtual camera.
-add_executable(CameraEmulator src/app/main.cpp src/app/ScreenCapture.cpp)
+add_executable(CameraEmulator src/app/main.cpp src/app/CameraControl.cpp src/app/ScreenCapture.cpp)
 target_include_directories(CameraEmulator PRIVATE src/common)
 target_link_libraries(CameraEmulator PRIVATE mf mfplat mfuuid mfsensorgroup ole32 shell32 user32 gdi32 shcore)
 
@@ -40,3 +40,8 @@ add_dependencies(SourceTest CameraEmulatorSource)
 # Reads the registered virtual camera like the Android emulator does (needs CameraEmulator.exe running).
 add_executable(ReaderTest tests/ReaderTest.cpp)
 target_link_libraries(ReaderTest PRIVATE mfplat mfuuid mfreadwrite mf ole32)
+
+# Tray app: the same features as CameraEmulator.exe from a notification area icon, no console.
+add_executable(CameraEmulatorTray WIN32 src/tray/TrayApp.cpp src/app/CameraControl.cpp src/app/ScreenCapture.cpp)
+target_include_directories(CameraEmulatorTray PRIVATE src/common src/app)
+target_link_libraries(CameraEmulatorTray PRIVATE mf mfplat mfuuid mfsensorgroup ole32 shell32 user32 gdi32 shcore advapi32)

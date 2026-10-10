@@ -12,6 +12,10 @@ bool SelectScreenRegion(RECT& region);
 // Returns a region of the given size centered on the monitor under the mouse cursor.
 RECT CenteredRegion(LONG width, LONG height);
 
+// Diagnostics from the capture code. CameraEmulator.exe prints them; the tray app writes them to
+// its log file. Default: stdout.
+void SetScreenCaptureLogger(void (*logger)(const wchar_t* message));
+
 // Captures a screen region at 30 fps and publishes it to the media source through the shared
 // memory section described in ScreenShare.h. The size is fixed at Start; the region can be
 // moved at any time from any thread.

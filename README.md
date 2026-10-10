@@ -9,7 +9,8 @@ virtual camera API (`MFCreateVirtualCamera`). It is meant to feed the Android SD
 | Component | Role |
 |---|---|
 | `CameraEmulatorSource.dll` | COM media source. Windows' **Frame Server** service loads it and pulls frames from it. |
-| `CameraEmulator.exe` | Publishes the image (or captures a zone of the screen) and registers the virtual camera for as long as it runs. |
+| `CameraEmulatorTray.exe` | Notification area (system tray) app with no console: all the features below from the icon's menu. |
+| `CameraEmulator.exe` | Command-line version, for scripts: publishes the image (or captures a zone of the screen), installs or exposes the camera. |
 | `SourceTest.exe` | Test harness: loads the DLL directly and dumps one frame to a BMP. |
 | `ReaderTest.exe` | Test harness: reads the running virtual camera at a given size, the way the Android emulator does, and dumps a BMP. |
 
@@ -54,7 +55,33 @@ rebuild is not picked up until the service restarts:
    (Windows allows renaming a loaded DLL) and build again.
 3. From an **administrator** prompt, run `net stop FrameServer`. It restarts on demand.
 
-## Run
+## Tray app
+
+```bat
+build\Release\CameraEmulatorTray.exe
+```
+
+A camera icon appears in the notification area. It shows a red dot while a screen zone is being
+broadcast. Windows 11 puts new icons in the overflow area (the **^** arrow); to keep it visible,
+drag it onto the taskbar, or enable it in Settings → Personalization → Taskbar → Other system
+tray icons. Left- or right-click the icon for the menu:
+
+- **Choose image…**: the picture shown by the camera.
+- **Broadcast screen zone**: drag a rectangle (*Select zone…*), reuse the *Last zone*, or pick a
+  centered size. Drag the red frame to move the zone.
+- **Stop broadcast**: also available from anywhere with the stop shortcut (Ctrl+Alt+X by
+  default; set `stopKey=` in the `[screen]` section of `settings.ini` to change it).
+- **Layout**: *Android emulator (portrait)* or *Fit (desktop apps)*.
+- **Keep the camera when this app is closed**: installs the camera permanently, the same as
+  `--install`. When unchecked, the camera exists only while the tray app runs.
+- **Start with Windows**: adds the tray app to your startup programs (`HKCU\…\Run`).
+- **Open settings folder**, **Exit**.
+
+Only one instance runs at a time. Diagnostics go to `C:\ProgramData\CameraEmulator\tray.log`.
+The window also accepts the menu commands as `WM_COMMAND` messages (IDs in
+`src/tray/TrayApp.cpp`), which is handy for scripts.
+
+## Command line
 
 ### Permanent camera (recommended)
 

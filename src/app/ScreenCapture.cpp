@@ -1,6 +1,7 @@
 #include "ScreenCapture.h"
 #include "ScreenShare.h"
 #include <algorithm>
+#include <cstdarg>
 #include <cstdio>
 #include <shellscalingapi.h>
 
@@ -13,6 +14,23 @@ namespace
     constexpr LONG kTabHeight = 22;      // DIPs
     constexpr wchar_t kTabText[] = L"CameraEmulator - drag to move";
     constexpr LONG kFrameIntervalMs = 33;
+
+    void PrintToConsole(const wchar_t* message)
+    {
+        wprintf(L"%s\n", message);
+    }
+
+    void (*g_logger)(const wchar_t*) = PrintToConsole;
+
+    void Log(const wchar_t* format, ...)
+    {
+        wchar_t message[512];
+        va_list args;
+        va_start(args, format);
+        vswprintf_s(message, format, args);
+        va_end(args);
+        g_logger(message);
+    }
 
     // Region selection overlay -------------------------------------------------------------
 
@@ -98,6 +116,11 @@ namespace
         }
         return DefWindowProcW(window, message, wParam, lParam);
     }
+}
+
+void SetScreenCaptureLogger(void (*logger)(const wchar_t* message))
+{
+    g_logger = logger ? logger : PrintToConsole;
 }
 
 bool SelectScreenRegion(RECT& region)
@@ -220,8 +243,11 @@ void ScreenBroadcaster::Run()
     due.QuadPart = -10'000LL * kFrameIntervalMs;
     if (timer) SetWaitableTimer(timer, &due, kFrameIntervalMs, nullptr, nullptr, FALSE);
 
+    if (!bitmap || !timer) Log(L"Screen capture setup failed: error %lu", GetLastError());
+
     const HANDLE waits[] = {m_stopEvent, timer};
-    while (bitmap && timer && WaitForMultipleObjects(2, waits, FALSE, INFINITE) == WAIT_OBJECT_0 + 1)
+    DWORD wait = WAIT_FAILED;
+    while (bitmap && timer && (wait = WaitForMultipleObjects(2, waits, FALSE, INFINITE)) == WAIT_OBJECT_0 + 1)
     {
         EnsureSection();
         if (!m_view) continue;
@@ -232,6 +258,8 @@ void ScreenBroadcaster::Run()
             Publish(pixels);
         }
     }
+    if (wait == WAIT_FAILED && bitmap && timer) Log(L"Screen capture stopped unexpectedly: error %lu", GetLastError());
+    Log(L"Screen capture thread ended");
 
     if (timer) CloseHandle(timer);
     if (previous) SelectObject(memory, previous);
@@ -264,7 +292,7 @@ void ScreenBroadcaster::EnsureSection()
         m_mapping = mapping;
         m_view = view;
         m_viewIsGlobal = name == kScreenSectionGlobal;
-        wprintf(L"Broadcasting the screen region to the camera (%s section).\n", m_viewIsGlobal ? L"global" : L"local");
+        Log(L"Broadcasting the screen region to the camera (%s section).", m_viewIsGlobal ? L"global" : L"local");
         return;
     }
 }
@@ -345,7 +373,7 @@ void RegionBorder::Show(const RECT& region, MoveCallback onMove)
         nullptr, nullptr, windowClass.hInstance, this);
     if (!m_window)
     {
-        fwprintf(stderr, L"Could not create the zone frame: error %lu\n", GetLastError());
+        Log(L"Could not create the zone frame: error %lu", GetLastError());
         return;
     }
 
