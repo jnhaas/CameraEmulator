@@ -17,6 +17,7 @@
 #include <mfvirtualcamera.h>
 #include <wrl/client.h>
 #include <cstdio>
+#include <cwctype>
 #include <string>
 
 #include "ScreenCapture.h"
@@ -84,18 +85,69 @@ namespace
         return S_OK;
     }
 
-    // Waits for Ctrl+C while pumping messages for the windows of this thread (region border).
-    void WaitForStop()
+    // Global shortcut that stops the screen broadcast.
+    struct Hotkey
+    {
+        UINT modifiers = MOD_CONTROL | MOD_ALT;
+        UINT key = 'X';
+        std::wstring text = L"Ctrl+Alt+X";
+    };
+    constexpr int kStopHotkeyId = 1;
+
+    // Accepts e.g. "ctrl+alt+x", "ctrl+shift+f12", "win+alt+5": modifiers (ctrl, alt, shift, win)
+    // and one key (letter, digit, or F1-F24), separated by '+'.
+    bool ParseHotkey(const wchar_t* text, Hotkey& hotkey)
+    {
+        Hotkey result{0, 0, L""};
+        std::wstring remaining = text;
+        while (!remaining.empty())
+        {
+            const size_t plus = remaining.find(L'+');
+            std::wstring token = remaining.substr(0, plus);
+            remaining = plus == std::wstring::npos ? L"" : remaining.substr(plus + 1);
+            if (token.empty()) return false;
+            if (!result.text.empty()) result.text += L"+";
+
+            if (_wcsicmp(token.c_str(), L"ctrl") == 0) { result.modifiers |= MOD_CONTROL; result.text += L"Ctrl"; }
+            else if (_wcsicmp(token.c_str(), L"alt") == 0) { result.modifiers |= MOD_ALT; result.text += L"Alt"; }
+            else if (_wcsicmp(token.c_str(), L"shift") == 0) { result.modifiers |= MOD_SHIFT; result.text += L"Shift"; }
+            else if (_wcsicmp(token.c_str(), L"win") == 0) { result.modifiers |= MOD_WIN; result.text += L"Win"; }
+            else if (result.key != 0) return false; // only one key
+            else if (token.size() == 1 && iswalnum(token[0]))
+            {
+                result.key = towupper(token[0]);
+                result.text += static_cast<wchar_t>(result.key);
+            }
+            else if ((token[0] == L'f' || token[0] == L'F') && token.size() <= 3)
+            {
+                const int number = _wtoi(token.c_str() + 1);
+                if (number < 1 || number > 24) return false;
+                result.key = VK_F1 + number - 1;
+                result.text += L"F" + std::to_wstring(number);
+            }
+            else return false;
+        }
+        // A bare key would be swallowed system-wide: require at least one modifier.
+        if (result.key == 0 || result.modifiers == 0) return false;
+        hotkey = result;
+        return true;
+    }
+
+    // Waits for Ctrl+C (returns true) or the stop hotkey (returns false) while pumping messages
+    // for the windows of this thread (region border).
+    bool WaitForStop()
     {
         while (MsgWaitForMultipleObjects(1, &g_stopEvent, FALSE, INFINITE, QS_ALLINPUT) == WAIT_OBJECT_0 + 1)
         {
             MSG message;
             while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))
             {
+                if (message.message == WM_HOTKEY && message.wParam == kStopHotkeyId) return false;
                 TranslateMessage(&message);
                 DispatchMessageW(&message);
             }
         }
+        return true;
     }
 
     // Accepts "x,y,width,height", or "widthxheight" for a region centered on the monitor under
@@ -122,30 +174,47 @@ namespace
         wprintf(L"%s %ld,%ld,%ld,%ld\n", prefix, region.left, region.top, region.right - region.left, region.bottom - region.top);
     }
 
-    // Broadcasts the screen region, if any, until Ctrl+C. The region can be moved by dragging
-    // its frame.
-    void RunUntilStopped(const RECT* screenRegion)
+    // Broadcasts the screen region, if any, until Ctrl+C or the stop hotkey. The region can be
+    // moved by dragging its frame. If this process hosts the camera (hostsCamera), the hotkey
+    // only stops the broadcast and Ctrl+C is still needed to remove the camera.
+    void RunUntilStopped(const RECT* screenRegion, const Hotkey& stopKey, bool hostsCamera)
     {
+        if (!screenRegion)
+        {
+            WaitForStop();
+            return;
+        }
+
         ScreenBroadcaster broadcaster;
         RegionBorder border;
-        RECT region{};
-        if (screenRegion)
+        RECT region = *screenRegion;
+        if (!broadcaster.Start(region))
         {
-            region = *screenRegion;
-            if (!broadcaster.Start(region))
-            {
-                fwprintf(stderr, L"Invalid screen region.\n");
-                return;
-            }
-            border.Show(region, [&](const RECT& moved) {
-                region = moved;
-                broadcaster.MoveTo(POINT{moved.left, moved.top});
-            });
-            PrintRegion(L"Broadcasting screen region", region);
-            wprintf(L"Drag the red frame to move it.\n");
+            fwprintf(stderr, L"Invalid screen region.\n");
+            return;
         }
-        WaitForStop();
-        if (screenRegion) PrintRegion(L"Last region (reuse with --screen):", region);
+        border.Show(region, [&](const RECT& moved) {
+            region = moved;
+            broadcaster.MoveTo(POINT{moved.left, moved.top});
+        });
+        PrintRegion(L"Broadcasting screen region", region);
+        wprintf(L"Drag the red frame to move it.\n");
+
+        const bool hotkeyRegistered = RegisterHotKey(nullptr, kStopHotkeyId, stopKey.modifiers | MOD_NOREPEAT, stopKey.key) != FALSE;
+        if (hotkeyRegistered) wprintf(L"Press %s (anywhere) to stop the broadcast.\n", stopKey.text.c_str());
+        else fwprintf(stderr, L"%s is already used by another application; use --stop-key to pick another shortcut.\n", stopKey.text.c_str());
+
+        const bool ctrlC = WaitForStop();
+        if (hotkeyRegistered) UnregisterHotKey(nullptr, kStopHotkeyId);
+        border.Hide();
+        broadcaster.Stop();
+        PrintRegion(L"Broadcast stopped. Last region (reuse with --screen):", region);
+
+        if (!ctrlC && hostsCamera)
+        {
+            wprintf(L"The camera shows the image again. Press Ctrl+C to remove the camera.\n");
+            WaitForStop();
+        }
     }
 
     bool VirtualCamerasSupported()
@@ -233,7 +302,7 @@ namespace
         return 0;
     }
 
-    int RunCamera(const RECT* screenRegion)
+    int RunCamera(const RECT* screenRegion, const Hotkey& stopKey)
     {
         if (!VirtualCamerasSupported()) return 1;
 
@@ -252,7 +321,7 @@ namespace
         }
 
         wprintf(L"Virtual camera \"%s\" is running. Press Ctrl+C to stop.\n", CAMERAEMULATOR_FRIENDLY_NAME);
-        RunUntilStopped(screenRegion);
+        RunUntilStopped(screenRegion, stopKey, true);
 
         wprintf(L"Removing virtual camera...\n");
         hr = camera->Remove();
@@ -274,6 +343,7 @@ int wmain(int argc, wchar_t** argv)
     bool uninstall = false;
     const wchar_t* image = nullptr;
     const wchar_t* layout = nullptr;
+    Hotkey stopKey;
     bool screen = false;
     bool screenRegionGiven = false;
     RECT screenRegion{};
@@ -311,6 +381,10 @@ int wmain(int argc, wchar_t** argv)
             layout = argv[++i];
             validArgs = _wcsicmp(layout, CameraEmulator::kLayoutAndroid) == 0 || _wcsicmp(layout, CameraEmulator::kLayoutFit) == 0;
         }
+        else if (_wcsicmp(argv[i], L"--stop-key") == 0 && i + 1 < argc)
+        {
+            validArgs = ParseHotkey(argv[++i], stopKey);
+        }
         else if (argv[i][0] != L'-' && !image)
         {
             image = argv[i];
@@ -332,16 +406,19 @@ int wmain(int argc, wchar_t** argv)
             L"      remove the installed camera\n"
             L"  %s [--layout android|fit] [--screen [x,y,w,h | wxh]] [image.png]\n"
             L"      apply the settings; if the camera is not installed, expose it until Ctrl+C;\n"
-            L"      with --screen, broadcast the zone until Ctrl+C\n"
+            L"      with --screen, broadcast the zone until Ctrl+C or the stop key\n"
             L"  %s --update [--layout android|fit] [--screen [x,y,w,h | wxh]] [image.png]\n"
-            L"      only apply the settings; with --screen, broadcast to the existing camera until Ctrl+C\n"
+            L"      only apply the settings; with --screen, broadcast to the existing camera until\n"
+            L"      Ctrl+C or the stop key\n"
             L"\n"
             L"Layouts: android (default) compensates the Android emulator's crop of webcam frames\n"
             L"         for portrait devices; fit letterboxes the image for regular apps.\n"
             L"--screen broadcasts a zone of the screen, in physical pixels: x,y,w,h, or wxh to center\n"
             L"         it on the monitor under the mouse. Without a value, drag a rectangle with the\n"
             L"         mouse (Esc cancels). Drag the red frame to move the zone while it runs. The\n"
-            L"         image is shown again when the broadcast stops.\n",
+            L"         image is shown again when the broadcast stops.\n"
+            L"--stop-key KEYS  global shortcut that stops the broadcast (default ctrl+alt+x), e.g.\n"
+            L"         ctrl+shift+f12: modifiers ctrl, alt, shift, win plus a letter, digit or F1-F24.\n",
             argv[0], argv[0], argv[0], argv[0]);
         return 2;
     }
@@ -396,12 +473,12 @@ int wmain(int argc, wchar_t** argv)
         if (screen)
         {
             wprintf(L"Broadcasting to the existing camera. Press Ctrl+C to stop.\n");
-            RunUntilStopped(&screenRegion);
+            RunUntilStopped(&screenRegion, stopKey, false);
         }
     }
     else
     {
-        result = RunCamera(screen ? &screenRegion : nullptr);
+        result = RunCamera(screen ? &screenRegion : nullptr, stopKey);
     }
 
     MFShutdown();

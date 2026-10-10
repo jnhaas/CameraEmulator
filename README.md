@@ -103,7 +103,15 @@ build\Release\CameraEmulator.exe --screen 100,200,800,600
 Sizes are in physical pixels, up to 3840×2160. A red frame with a "drag to move" tab marks the
 zone. The frame isn't captured, and the inside of the zone stays clickable. **Drag the frame or
 the tab to move the zone**; the capture follows on the next frame, and the zone stays on screen.
-When you stop with Ctrl+C, the app prints the last position so you can reuse it with `--screen`.
+To stop the broadcast from anywhere, press **Ctrl+Alt+X** (a global shortcut), or Ctrl+C in the
+console. Choose another shortcut with `--stop-key`, for example `--stop-key ctrl+shift+f12`. A
+shortcut is any combination of `ctrl`, `alt`, `shift` and `win`, plus one letter, digit or
+`F1`–`F24`. If the shortcut is already taken by another application, the app says so and Ctrl+C
+still works. When the camera is installed, the app exits after the shortcut. When the app hosts a
+temporary camera, it keeps running so the camera doesn't disappear under the emulator: the camera
+shows the image again, and Ctrl+C removes it.
+
+When the broadcast stops, the app prints the last position so you can reuse it with `--screen`.
 The zone is fitted into the camera frame using the current layout.
 
 To broadcast to a camera that is already running, without restarting it:
