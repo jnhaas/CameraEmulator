@@ -1,6 +1,6 @@
 @echo off
 rem Builds CameraEmulator (Release), signs the binaries and packages the files end users need into
-rem dist\CameraEmulator-<date>-<commit>.zip:
+rem dist\CameraEmulator-<version>-<commit>.zip:
 rem
 rem   CameraEmulatorTray.exe, CameraEmulator.exe, CameraEmulatorSource.dll,
 rem   CameraEmulator-Help.html, Install.bat, Uninstall.bat, ReadMe.txt
@@ -45,12 +45,13 @@ if "%SIGN%"=="0" (
 call :sign || goto :sign_failed
 
 :stage
-rem Package name: date and commit.
-for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd"') do set "DATE=%%i"
+rem Package name: file version (from CMakeLists.txt, written by CMake) and commit.
+set "VERSION=0.0.0.0"
+if exist "%BUILD%\generated\version.txt" set /p VERSION=<"%BUILD%\generated\version.txt"
 set "COMMIT=local"
 for /f %%i in ('git rev-parse --short HEAD 2^>nul') do set "COMMIT=%%i"
 git diff --quiet HEAD -- 2>nul || set "COMMIT=%COMMIT%-modified"
-set "NAME=CameraEmulator-%DATE%-%COMMIT%"
+set "NAME=CameraEmulator-%VERSION%-%COMMIT%"
 if "%SIGN%"=="0" set "NAME=%NAME%-unsigned"
 
 set "STAGE=dist\CameraEmulator"

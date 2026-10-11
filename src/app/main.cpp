@@ -23,6 +23,7 @@
 #include "CameraControl.h"
 #include "ScreenCapture.h"
 #include "Shared.h"
+#include "Version.h"
 
 using Microsoft::WRL::ComPtr;
 using namespace CameraControl;
@@ -133,7 +134,10 @@ namespace
     void PrintUsage(const wchar_t* exe)
     {
         fwprintf(stderr,
+            L"CameraEmulator " CAMERAEMULATOR_PRODUCT_VERSION L"\n"
+            L"\n"
             L"Usage:\n"
+            L"  %s --version\n"
             L"  %s --install [--layout android|fit] [image.png]\n"
             L"      install the camera permanently (survives restarts of this app and reboots)\n"
             L"  %s --uninstall\n"
@@ -155,7 +159,7 @@ namespace
             L"         ctrl+shift+f12: modifiers ctrl, alt, shift, win plus a letter, digit or F1-F24.\n"
             L"--default-image  remove the published image: the camera shows its built-in default\n"
             L"         image (also the case before any image is published).\n",
-            exe, exe, exe, exe);
+            exe, exe, exe, exe, exe);
     }
 }
 
@@ -180,6 +184,11 @@ int wmain(int argc, wchar_t** argv)
     bool validArgs = true;
     for (int i = 1; i < argc && validArgs; ++i)
     {
+        if (_wcsicmp(argv[i], L"--version") == 0)
+        {
+            wprintf(L"CameraEmulator %s\n", CAMERAEMULATOR_PRODUCT_VERSION);
+            return 0;
+        }
         if (_wcsicmp(argv[i], L"--update") == 0) updateOnly = true;
         else if (_wcsicmp(argv[i], L"--install") == 0) install = true;
         else if (_wcsicmp(argv[i], L"--uninstall") == 0) uninstall = true;

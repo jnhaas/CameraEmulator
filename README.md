@@ -43,6 +43,20 @@ cmake -S . -B build
 cmake --build build --config Release
 ```
 
+### Version
+
+The version is set once, in `CMakeLists.txt` (`project(CameraEmulator VERSION 1.0.0 …)`). Every
+binary gets a version resource, visible in Explorer under Properties → Details:
+
+- **File version:** `1.0.0.<build>`. The build number is the number of git commits, so it
+  increases with every commit.
+- **Product version:** `1.0.0 (<commit>)`.
+- **Company and copyright:** `CAMERAEMULATOR_COMPANY` in `CMakeLists.txt`.
+
+Git details are read when CMake configures, so re-run `cmake -S . -B build` after committing to
+refresh them (`tools\package.bat` always does). `CameraEmulator.exe --version` prints the version,
+and the tray menu shows it in its status line.
+
 ## Packaging
 
 ```bat
@@ -50,7 +64,7 @@ tools\package.bat
 ```
 
 This builds Release in a separate `build-package` folder, so running binaries never block it,
-signs the binaries, and creates `dist\CameraEmulator-<date>-<commit>.zip`.
+signs the binaries, and creates `dist\CameraEmulator-<version>-<commit>.zip`.
 
 **Signing.** `CameraEmulatorTray.exe`, `CameraEmulator.exe` and `CameraEmulatorSource.dll` are
 signed with `signtool.exe` from the Windows SDK (found automatically), using SHA-256 and an

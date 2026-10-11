@@ -20,6 +20,7 @@
 #include "CameraControl.h"
 #include "ScreenCapture.h"
 #include "Shared.h"
+#include "Version.h"
 
 using Microsoft::WRL::ComPtr;
 using namespace CameraControl;
@@ -478,11 +479,11 @@ namespace
     {
         if (m_broadcaster)
         {
-            return L"CameraEmulator - broadcasting a " + std::to_wstring(m_region.right - m_region.left) + L"x" +
+            return L"CameraEmulator " CAMERAEMULATOR_VERSION L" - broadcasting a " + std::to_wstring(m_region.right - m_region.left) + L"x" +
                    std::to_wstring(m_region.bottom - m_region.top) + L" zone";
         }
         const std::wstring image = PublishedImageName();
-        return L"CameraEmulator - showing " + (image.empty() ? std::wstring(L"the default image") : image);
+        return L"CameraEmulator " CAMERAEMULATOR_VERSION L" - showing " + (image.empty() ? std::wstring(L"the default image") : image);
     }
 
     void TrayApp::ShowMenu()
@@ -777,7 +778,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
     }
 
     SetScreenCaptureLogger(WriteLog);
-    Log(L"Tray app started (per-monitor DPI awareness: %s, error %lu)", dpiAware ? L"yes" : L"no", dpiError);
+    Log(L"Tray app %s started (per-monitor DPI awareness: %s, error %lu)", CAMERAEMULATOR_PRODUCT_VERSION, dpiAware ? L"yes" : L"no", dpiError);
 
     // STA: required by the file open dialog.
     if (FAILED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED))) return 1;

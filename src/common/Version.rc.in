@@ -1,0 +1,33 @@
+// Version resource, configured by CMake for each binary (see add_version_info in CMakeLists.txt).
+// Shown in Explorer: Properties > Details.
+
+#include <winver.h>
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION     @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,@CAMERAEMULATOR_BUILD@
+ PRODUCTVERSION  @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,@CAMERAEMULATOR_BUILD@
+ FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+ FILEFLAGS       @VER_FILEFLAGS@
+ FILEOS          VOS_NT_WINDOWS32
+ FILETYPE        @VER_FILETYPE@
+ FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0" // English (United States), Unicode
+        BEGIN
+            VALUE "CompanyName",      "@CAMERAEMULATOR_COMPANY@"
+            VALUE "FileDescription",  "@VER_DESCRIPTION@"
+            VALUE "FileVersion",      "@CAMERAEMULATOR_FILE_VERSION@"
+            VALUE "InternalName",     "@VER_INTERNAL_NAME@"
+            VALUE "LegalCopyright",   "Copyright (C) @CAMERAEMULATOR_YEAR@ @CAMERAEMULATOR_COMPANY@"
+            VALUE "OriginalFilename", "@VER_FILENAME@"
+            VALUE "ProductName",      "CameraEmulator"
+            VALUE "ProductVersion",   "@CAMERAEMULATOR_PRODUCT_VERSION@"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
